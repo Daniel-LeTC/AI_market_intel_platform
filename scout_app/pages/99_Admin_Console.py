@@ -180,6 +180,27 @@ with tab_logs:
         st.write("") # Spacer
         run_cmd = st.button("▶️ Run Command", type="primary", use_container_width=True)
 
+    # --- NEW: DB DEDUP INTEGRATION ---
+    st.markdown("---")
+    st.markdown("#### 🧹 Database Maintenance")
+    d_col1, d_col2 = st.columns(2)
+    with d_col1:
+        if st.button("🔍 Check Duplicate Stats", use_container_width=True):
+            try:
+                res = requests.get(f"{WORKER_URL}/admin/dedup/stats", timeout=5)
+                if res.status_code == 200:
+                    s = res.json()
+                    st.info(f"Active: `{s['active_db']}` | Duplicates: **{s['duplicates']}**")
+                else: st.error(res.text)
+            except: st.error("Worker Offline")
+    with d_col2:
+        if st.button("🔥 Run Smart Dedup", use_container_width=True):
+            try:
+                res = requests.post(f"{WORKER_URL}/admin/dedup/run", timeout=5)
+                if res.status_code == 202: st.success("🚀 Dedup Task Dispatched!")
+                else: st.error(res.text)
+            except: st.error("Worker Offline")
+
     # --- RESULT AREA ---
     if run_cmd:
         st.markdown("#### 📤 Command Output")

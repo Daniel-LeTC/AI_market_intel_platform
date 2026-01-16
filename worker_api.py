@@ -167,5 +167,90 @@ def exec_cmd(req: CommandRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/admin/dedup/stats")
+def get_dedup_stats():
+    try:
+        import duckdb
+        from scout_app.core.config import Settings
+        db_path = str(Settings.get_active_db_path())
+        
+        query = """
+        WITH enriched_tags AS (
+            SELECT 
+                rt.*,
+                CASE WHEN am.standard_aspect IS NOT NULL THEN 1 ELSE 0 END as is_cleaned
+            FROM review_tags rt
+            LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect
+        ),
+        ranked_tags AS (
+            SELECT 
+                *,
+                ROW_NUMBER() OVER (
+                    PARTITION BY review_id, quote, sentiment 
+                    ORDER BY is_cleaned DESC, created_at DESC
+                ) as rank
+            FROM enriched_tags
+        )
+        SELECT 
+            CASE WHEN rank = 1 THEN 'KEEP' ELSE 'DELETE' END as action,
+            COUNT(*) as count
+        FROM ranked_tags
+        GROUP BY 1
+        """
+        with duckdb.connect(db_path, read_only=True) as conn:
+            df = conn.execute(query).df()
+            stats = df.set_index('action')['count'].to_dict()
+            return {
+                "active_db": os.path.basename(db_path),
+                "total_rows": int(df['count'].sum()),
+                "duplicates": int(stats.get('DELETE', 0)),
+                "clean_rows": int(stats.get('KEEP', 0))
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/admin/dedup/run")
+def run_dedup(background_tasks: BackgroundTasks):
+    def dedup_job():
+        logger.info("🧹 [Dedup] Starting Smart Cleanup...")
+        try:
+            import duckdb
+            import shutil
+            from scout_app.core.config import Settings
+            
+            active_path = Settings.get_active_db_path()
+            standby_path = Settings.get_standby_db_path()
+            
+            # 1. Sync
+            shutil.copy(active_path, standby_path)
+            
+            # 2. Clean Standby
+            with duckdb.connect(str(standby_path)) as conn:
+                conn.execute("""
+                    DELETE FROM review_tags 
+                    WHERE tag_id IN (
+                        SELECT tag_id FROM (
+                            SELECT 
+                                rt.tag_id,
+                                ROW_NUMBER() OVER (
+                                    PARTITION BY rt.review_id, rt.quote, rt.sentiment 
+                                    ORDER BY (CASE WHEN am.standard_aspect IS NOT NULL THEN 1 ELSE 0 END) DESC, rt.created_at DESC
+                                ) as rank
+                            FROM review_tags rt
+                            LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect
+                        ) WHERE rank > 1
+                    )
+                """)
+            
+            # 3. Swap
+            Settings.swap_db()
+            logger.info(f"✅ [Dedup] Cleanup complete. Swapped to {os.path.basename(standby_path)}")
+            
+        except Exception as e:
+            logger.error(f"❌ [Dedup] Failed: {e}")
+
+    background_tasks.add_task(dedup_job)
+    return {"status": "accepted", "message": "Dedup job started in background."}
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
