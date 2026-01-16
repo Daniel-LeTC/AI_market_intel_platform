@@ -74,9 +74,9 @@ with tab_scrape:
         st.write("")
         scrape_btn = st.button("🚀 Launch Scraper", type="primary", use_container_width=True)
 
-    if scrape_btn and asins_input:
-        asins = [a.strip() for a in asins_input.replace("\n", ",").split(",") if a.strip()]
-        if asins:
+    if scrape_btn:
+        if asins_input.strip():
+            asins = [a.strip() for a in asins_input.replace("\n", ",").split(",") if a.strip()]
             try:
                 res = requests.post(f"{WORKER_URL}/trigger/scrape", json={"asins": asins}, timeout=5)
                 if res.status_code == 202:
@@ -86,7 +86,7 @@ with tab_scrape:
             except Exception as e:
                 st.error(f"Connection Error: {e}")
         else:
-            st.warning("Please enter at least one ASIN.")
+            st.warning("⚠️ Please enter at least one ASIN before launching the scraper.")
 
 # --- TAB 2: STAGING AREA (Safe Ingest - API BASED) ---
 with tab_staging:
