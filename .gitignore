@@ -1,0 +1,53 @@
+# --- Python Standard ---
+__pycache__/
+*.py[oc]
+*.pyo
+*.pyd
+build/
+dist/
+wheels/
+*.egg-info
+.venv
+venv
+env
+
+# --- Secrets & Config ---
+.env
+.env.local
+.DS_Store
+*.Zone.Identifier
+*.tmp
+*.bak
+*.swp
+
+# --- Project Data (BIG NO-NO) ---
+archived/
+staging_data/
+archived_data/
+research_results/
+upload_batch_*/
+reviews_by_asin_excel/
+reports/
+*.duckdb
+*.duckdb.wal
+scout_app/database/*.duckdb
+*.xlsx
+*.csv
+*.jsonl
+*.pdf
+*.png
+*.jpg
+*.jpeg
+
+# --- Personal / Internal Tracking ---
+kpi_progress_tracking.md
+repo_feedback.md
+
+# --- Logs & Runtime ---
+*.log
+scout_app/logs/
+npm-debug.log*
+
+# --- IDEs ---
+.vscode/
+.idea/

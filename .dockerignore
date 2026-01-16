@@ -1,0 +1,29 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.venv
+.env
+venv
+
+# Project Data (Do NOT bake data into image)
+staging_data/
+dataset_*/
+archived/
+archived_data/
+research_results/
+reviews_by_asin_excel/
+upload_batch_*/
+reports/
+
+# Database (Mount via Volume instead)
+scout.duckdb
+*.duckdb
+
+# OS
+.DS_Store
