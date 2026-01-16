@@ -3,88 +3,88 @@ from pathlib import Path
 import sys
 
 # --- 1. Path Resolution ---
-# scout_app/core/config.py -> scout_app/core/ -> scout_app/ -> ROOT
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 ENV_PATH = BASE_DIR / ".env"
 
-# --- 2. Environment Loader (Zero Dependency) ---
+# --- 2. Environment Loader ---
 def load_env_manual(path: Path):
-    """
-    Load .env manually.
-    Priority: System Env > .env File
-    """
-    if not path.exists():
-        # Dev might rely purely on system env vars (Docker/Cloud)
-        return
-    
+    if not path.exists(): return
     try:
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
+                if not line or line.startswith("#"): continue
                 if "=" in line:
                     key, value = line.split("=", 1)
-                    key = key.strip()
-                    value = value.strip().strip("'").strip('"')
-                    
-                    # Only set if not already in system env
-                    if key not in os.environ:
-                        os.environ[key] = value
+                    if key.strip() not in os.environ:
+                        os.environ[key.strip()] = value.strip().strip("'").strip('"')
     except Exception as e:
         print(f"⚠️ Warning: Failed to read .env file: {e}")
 
-# Load immediately on import
 load_env_manual(ENV_PATH)
 
 # --- 3. Configuration Class ---
 class Settings:
-    # Paths
     BASE_DIR = BASE_DIR
-    DB_PATH = BASE_DIR / "scout_app" / "database" / "scout.duckdb"
+    DB_DIR = BASE_DIR / "scout_app" / "database"
     
-    # Pipeline Directories
-    # Staging: Nơi file JSONL/Excel từ Scraper được lưu tạm
+    # Blue-Green DB Paths
+    DB_PATH_A = DB_DIR / "scout_a.duckdb"
+    DB_PATH_B = DB_DIR / "scout_b.duckdb"
+    CURRENT_DB_PTR = DB_DIR / "current_db.txt"
+    
+    # Legacy Path (for migration support)
+    DB_PATH_LEGACY = DB_DIR / "scout.duckdb"
+
     INGEST_STAGING_DIR = BASE_DIR / "staging_data"
-    # Archive: Nơi lưu file gốc sau khi đã nạp DB thành công
     ARCHIVE_DIR = BASE_DIR / "archived_data"
 
-    # Secrets (Fail Fast handled in validate)
     APIFY_TOKEN = os.getenv("APIFY_TOKEN")
     GEMINI_MINER_KEY = os.getenv("GEMINI_MINER_KEY")
     GEMINI_JANITOR_KEY = os.getenv("GEMINI_JANITOR_KEY")
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-    # Scraper Constants
     APIFY_ACTOR_ID = "axesso_data/amazon-reviews-scraper"
-    
-    # AI Constants - Upgraded to latest Gemini 3 (Jan 2026)
     GEMINI_MODEL = "models/gemini-3-flash-preview"
 
     @classmethod
-    def validate(cls):
-        """
-        Zero Trust: Ensure critical secrets exist.
-        Call this at the start of any entry point.
-        """
-        missing = []
-        if not cls.APIFY_TOKEN:
-            missing.append("APIFY_TOKEN")
-        if not cls.GEMINI_MINER_KEY:
-            missing.append("GEMINI_MINER_KEY")
-        if not cls.GEMINI_JANITOR_KEY:
-            missing.append("GEMINI_JANITOR_KEY")
+    def get_active_db_path(cls) -> Path:
+        """Read pointer to find which DB is ACTIVE (Read-Only for UI)."""
+        if not cls.CURRENT_DB_PTR.exists():
+            return cls.DB_PATH_A # Default to A
         
-        if missing:
-            raise ValueError(f"❌ CRITICAL ERROR: Missing Environment Variables: {', '.join(missing)}")
+        try:
+            with open(cls.CURRENT_DB_PTR, "r") as f:
+                val = f.read().strip()
+                return cls.DB_PATH_B if val == "B" else cls.DB_PATH_A
+        except:
+            return cls.DB_PATH_A
+
+    @classmethod
+    def get_standby_db_path(cls) -> Path:
+        """Find the STANDBY DB (Write Target)."""
+        active = cls.get_active_db_path()
+        return cls.DB_PATH_B if active == cls.DB_PATH_A else cls.DB_PATH_A
+
+    @classmethod
+    def swap_db(cls):
+        """Switch Active <-> Standby."""
+        new_active = "B" if cls.get_active_db_path() == cls.DB_PATH_A else "A"
+        with open(cls.CURRENT_DB_PTR, "w") as f:
+            f.write(new_active)
+        print(f"🔄 [System] Swapped Active DB to: {new_active}")
 
     @classmethod
     def ensure_dirs(cls):
-        """Create scaffolding directories if missing."""
-        cls.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        cls.DB_DIR.mkdir(parents=True, exist_ok=True)
         cls.INGEST_STAGING_DIR.mkdir(parents=True, exist_ok=True)
         cls.ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+        
+        # Init legacy migration if A/B don't exist
+        if not cls.DB_PATH_A.exists() and cls.DB_PATH_LEGACY.exists():
+            import shutil
+            print("⚙️ Migrating legacy DB to Blue-Green...")
+            shutil.copy(cls.DB_PATH_LEGACY, cls.DB_PATH_A)
+            shutil.copy(cls.DB_PATH_LEGACY, cls.DB_PATH_B)
 
-# --- 4. Auto-Initialization ---
-# Ensure directories exist implies side-effect on import. 
-# Safe for this project context.
 Settings.ensure_dirs()
