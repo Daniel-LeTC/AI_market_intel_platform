@@ -6,7 +6,7 @@ services:
     build: .
     container_name: scout_ui
     # Use python -m to avoid PATH issues
-    command: ["python", "-m", "streamlit", "run", "scout_app/main.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    command: ["python", "-m", "streamlit", "run", "scout_app/Market_Intelligence.py", "--server.port=8501", "--server.address=0.0.0.0"]
     ports:
       - "8501:8501"
     volumes:

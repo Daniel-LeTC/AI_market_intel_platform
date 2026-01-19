@@ -28,7 +28,7 @@ An agentic chat interface that doesn't just talk, but **acts**.
 ## 🚀 How to Run
 
 ```bash
-uv run streamlit run scout_app/main.py
+uv run streamlit run scout_app/Market_Intelligence.py
 ```
 
 ### 💡 Tips for 'The Detective'
