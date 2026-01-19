@@ -3,7 +3,13 @@ import requests
 import os
 import pandas as pd
 import time
+import duckdb
 from pathlib import Path
+import sys
+
+# Add root to sys.path to find core
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from core.config import Settings
 
 # --- Configuration ---
 st.set_page_config(page_title="Admin Console", page_icon="🛡️", layout="wide")
@@ -24,8 +30,29 @@ LOG_FILE = BASE_DIR / "scout_app/logs/worker.log"
 STAGING_DIR = BASE_DIR / "staging_data"
 WORKER_URL = os.getenv("WORKER_URL", "http://worker:8000")
 
-# Security
+# --- Security ---
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
+
+# --- DB Helpers (Direct for Admin) ---
+def get_db_path():
+    return str(Settings.get_active_db_path())
+
+def query_df(sql, params=None):
+    try:
+        with duckdb.connect(get_db_path(), read_only=True) as conn:
+            return conn.execute(sql, params).df()
+    except: return pd.DataFrame()
+
+def execute_sql(sql, params=None):
+    try:
+        # We need RW access to update status
+        with duckdb.connect(get_db_path(), read_only=False) as conn:
+            conn.execute(sql, params)
+        return True
+    except Exception as e:
+        st.error(f"SQL Error: {e}")
+        return False
+
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
@@ -59,7 +86,102 @@ def list_staging_files():
 st.title("🛡️ Gatekeeper Control Center")
 
 # Tabs
-tab_scrape, tab_staging, tab_ai, tab_logs = st.tabs(["🕷️ Scrape Room", "📦 Staging Area", "🧠 AI Operations", "📟 Terminal"])
+tab_req, tab_scrape, tab_staging, tab_ai, tab_logs = st.tabs(["📥 User Requests", "🕷️ Scrape Room", "📦 Staging Area", "🧠 AI Operations", "📟 Terminal"])
+
+# --- TAB 0: USER REQUESTS ---
+with tab_req:
+    st.header("ASIN Request Queue")
+    
+    # Load data
+    df_req = query_df("SELECT request_id, asin, note, priority, status, created_at FROM scrape_queue WHERE status = 'PENDING_APPROVAL' ORDER BY created_at DESC")
+    
+    if df_req.empty:
+        st.success("🎉 All requests cleared!")
+    else:
+        # Add 'Select' column for checkbox UI
+        df_req.insert(0, "Select", False)
+        
+        st.caption("Double-click cells to Edit ASIN/Note. Tick 'Select' to Approve in Batch.")
+        
+        # Editable Dataframe
+        edited_df = st.data_editor(
+            df_req,
+            column_config={
+                "Select": st.column_config.CheckboxColumn("Approve?", default=False),
+                "request_id": st.column_config.TextColumn("ID", disabled=True),
+                "asin": st.column_config.TextColumn("ASIN (Editable)", help="Change Child to Parent ASIN here"),
+                "status": st.column_config.TextColumn("Status", disabled=True),
+                "created_at": st.column_config.DatetimeColumn("Requested At", disabled=True, format="D MMM, HH:mm"),
+            },
+            hide_index=True,
+            use_container_width=True,
+            num_rows="dynamic",
+            key="req_editor"
+        )
+        
+        col_act1, col_act2 = st.columns([1, 4])
+        with col_act1:
+            if st.button("🚀 Approve Selected", type="primary"):
+                # Filter selected rows
+                selected_rows = edited_df[edited_df["Select"] == True]
+                
+                if selected_rows.empty:
+                    st.warning("Please tick at least one row.")
+                else:
+                    approved_asins = []
+                    for index, row in selected_rows.iterrows():
+                        # Update DB
+                        sql_update = """
+                            UPDATE scrape_queue 
+                            SET status = 'READY_TO_SCRAPE', asin = ?, note = ?
+                            WHERE request_id = ?
+                        """
+                        execute_sql(sql_update, [row['asin'], row['note'], row['request_id']])
+                        approved_asins.append(row['asin'])
+                    
+                    # Store in session state to trigger scrape in Tab 1 or here directly
+                    st.session_state['approved_batch'] = approved_asins
+                    st.success(f"✅ Approved {len(approved_asins)} items!")
+                    st.rerun()
+
+        with col_act2:
+            if st.button("🗑️ Reject Selected", type="secondary"):
+                selected_rows = edited_df[edited_df["Select"] == True]
+                if not selected_rows.empty:
+                    for _, row in selected_rows.iterrows():
+                        execute_sql("UPDATE scrape_queue SET status = 'REJECTED' WHERE request_id = ?", [row['request_id']])
+                    st.success("Moved to Rejected.")
+                    time.sleep(1)
+                    st.rerun()
+    
+    # --- AUTO-LAUNCH SECTION (Post-Approval) ---
+    if 'approved_batch' in st.session_state and st.session_state['approved_batch']:
+        st.divider()
+        st.info(f"🚀 **Ready to Launch:** {len(st.session_state['approved_batch'])} ASINs pending execution.")
+        st.code(", ".join(st.session_state['approved_batch']), language="text")
+        
+        c_launch, c_clear = st.columns([1, 4])
+        with c_launch:
+            if st.button("🔥 Launch Scraper Now", type="primary"):
+                try:
+                    payload = {"asins": st.session_state['approved_batch']}
+                    res = requests.post(f"{WORKER_URL}/trigger/scrape", json=payload, timeout=5)
+                    if res.status_code == 202:
+                        st.success(f"✅ Scraper Dispatched! Status: {res.json().get('status')}")
+                        # Update status to PROCESSING
+                        placeholders = ','.join(['?'] * len(st.session_state['approved_batch']))
+                        execute_sql(f"UPDATE scrape_queue SET status = 'PROCESSING' WHERE asin IN ({placeholders}) AND status = 'READY_TO_SCRAPE'", st.session_state['approved_batch'])
+                        del st.session_state['approved_batch']
+                        time.sleep(2)
+                        st.rerun()
+                    else:
+                        st.error(f"Failed: {res.text}")
+                except Exception as e:
+                    st.error(f"Worker connection failed: {e}")
+        with c_clear:
+            if st.button("Cancel / Clear"):
+                del st.session_state['approved_batch']
+                st.rerun()
 
 # --- TAB 1: SCRAPE ROOM ---
 with tab_scrape:

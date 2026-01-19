@@ -16,6 +16,9 @@ from scout_app.core.normalizer import TagNormalizer
 from scout_app.core.scraper import AmazonScraper
 from scout_app.core.ingest import DataIngester
 
+# NEW: Import Routers
+from scout_app.routers import social
+
 # --- Logging Setup ---
 LOG_FILE = "scout_app/logs/worker.log"
 logger = logging.getLogger("Gatekeeper")
@@ -32,7 +35,10 @@ ch.setLevel(logging.INFO)
 ch.setFormatter(formatter)
 logger.addHandler(ch)
 
-app = FastAPI(title="RnD Scout Gatekeeper", version="1.5 (Batch Commands)")
+app = FastAPI(title="RnD Scout Gatekeeper", version="1.6 (Social Module)")
+
+# Include Routers
+app.include_router(social.router)
 
 # --- Models ---
 class ScrapeRequest(BaseModel):

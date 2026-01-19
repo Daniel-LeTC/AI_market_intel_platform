@@ -5,6 +5,7 @@ import plotly.express as px
 import os
 import re
 import sys
+import uuid
 from pathlib import Path
 
 # Add root to sys.path to find core
@@ -43,6 +44,78 @@ def query_one(sql, params=None):
         st.error(f"DB Error: {e}")
         return None
 
+def request_new_asin(asin_input, note="", force_update=False):
+    """
+    Smart Request Handler V2:
+    1. Lookup 'products' table to map Child -> Parent ASIN.
+    2. Check 'reviews' table for existing data (Last Scrape Date).
+    3. Check for Duplicates in Queue.
+    4. Flag Unknown ASINs.
+    """
+    db_path = get_db_path()
+    
+    final_asin = asin_input
+    system_note = ""
+    is_unknown = False
+
+    try:
+        with duckdb.connect(db_path, read_only=True) as conn:
+            # 1. Lookup Product Logic
+            row = conn.execute("SELECT parent_asin FROM products WHERE asin = ? OR parent_asin = ? LIMIT 1", [asin_input, asin_input]).fetchone()
+            
+            if row:
+                mapped_parent = row[0]
+                if mapped_parent and mapped_parent != asin_input:
+                    final_asin = mapped_parent
+                    system_note = f"[Auto-Map] Child {asin_input} -> Parent {final_asin}"
+            else:
+                is_unknown = True
+                system_note = f"[Unknown ASIN] Not in Product DB. Admin verify Parent."
+
+            # 2. Check Existing Data (Reviews)
+            rev_stats = conn.execute("SELECT COUNT(*), MAX(review_date) FROM reviews WHERE parent_asin = ?", [final_asin]).fetchone()
+            has_data = rev_stats[0] > 0
+            last_date = rev_stats[1]
+            
+            if has_data and not force_update:
+                return False, f"🛑 Đã có dữ liệu! Tìm thấy {rev_stats[0]} reviews (Mới nhất: {last_date}). Nếu cần cập nhật, hãy tick 'Force Update'."
+
+            if has_data and force_update:
+                system_note += f" | [Force Update] Last Data: {last_date}"
+
+            # 3. Check Duplicate Queue
+            check_sql = "SELECT status FROM scrape_queue WHERE asin = ? AND status IN ('PENDING_APPROVAL', 'READY_TO_SCRAPE', 'PROCESSING')"
+            existing = conn.execute(check_sql, [final_asin]).fetchone()
+            if existing:
+                return False, f"⚠️ Yêu cầu cho {final_asin} đang chờ xử lý (Trạng thái: {existing[0]})."
+
+    except Exception as e:
+        return False, f"Lỗi hệ thống: {e}"
+
+    # Append User Note
+    full_note = f"{system_note} | {note}" if note else system_note
+
+    # Insert
+    req_id = str(uuid.uuid4())
+    sql = """
+        INSERT INTO scrape_queue (request_id, asin, status, requested_by, note)
+        VALUES (?, ?, 'PENDING_APPROVAL', 'user', ?)
+    """
+    try:
+        with duckdb.connect(db_path, read_only=False) as conn:
+            conn.execute(sql, [req_id, final_asin, full_note])
+        
+        # Success Messages
+        if is_unknown:
+            return False, f"⚠️ Đã gửi yêu cầu cho {final_asin}. (Lưu ý: Không tìm thấy trong Product DB)."
+        elif final_asin != asin_input:
+            return True, f"✅ Đã tự động chuyển về ASIN Cha: {final_asin}. Yêu cầu đã được gửi!"
+        else:
+            return True, f"✅ Đã gửi yêu cầu thành công cho {final_asin}!"
+            
+    except Exception as e:
+        return False, str(e)
+
 # --- Sidebar ---
 st.sidebar.title("🕵️ RnD Scout")
 st.sidebar.markdown("---")
@@ -53,6 +126,35 @@ view_mode = st.sidebar.radio(
     ["🏠 Home Dashboard", "🕵️ AI Detective"],
     index=0
 )
+st.sidebar.markdown("---")
+
+# Request Form
+with st.sidebar.expander("➕ Yêu cầu Scrape ASIN Mới"):
+    with st.form("req_form"):
+        new_asin = st.text_input("Nhập ASIN:", placeholder="B0...")
+        req_note = st.text_input("Ghi chú (Note):", placeholder="Tại sao cần scrape con này?")
+        force_chk = st.checkbox("Force Update (Nếu đã có data)")
+        
+        submitted = st.form_submit_button("Gửi Yêu Cầu")
+        if submitted:
+            if not new_asin or not new_asin.startswith("B0"):
+                st.error("ASIN không hợp lệ (Phải bắt đầu bằng 'B0')")
+            else:
+                ok, msg = request_new_asin(new_asin.strip(), req_note, force_chk)
+                if ok:
+                    if "⚠️" in msg: st.warning(msg) # Yellow for Unknown/Warning
+                    else: st.success(msg)           # Green for Auto-Correct/Success
+                else: st.warning(msg)               # Yellow for Error/Stop
+    
+    # Show History
+    st.caption("🕒 Các yêu cầu gần đây")
+    st.caption("🕒 Your Recent Requests")
+    try:
+        hist_df = query_df("SELECT asin, status FROM scrape_queue ORDER BY created_at DESC LIMIT 5")
+        if not hist_df.empty:
+            st.dataframe(hist_df, use_container_width=True, hide_index=True)
+    except: pass
+
 st.sidebar.markdown("---")
 
 # Load danh sach ASIN
