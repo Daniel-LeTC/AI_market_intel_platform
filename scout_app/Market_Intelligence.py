@@ -148,7 +148,6 @@ with st.sidebar.expander("➕ Yêu cầu Scrape ASIN Mới"):
     
     # Show History
     st.caption("🕒 Các yêu cầu gần đây")
-    st.caption("🕒 Your Recent Requests")
     try:
         hist_df = query_df("SELECT asin, status FROM scrape_queue ORDER BY created_at DESC LIMIT 5")
         if not hist_df.empty:
