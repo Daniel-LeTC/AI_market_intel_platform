@@ -21,7 +21,6 @@ env
 *.swp
 AGENT.md
 GEMINI.md
-
 # --- Project Data (BIG NO-NO) ---
 archived/
 staging_data/
@@ -37,14 +36,14 @@ scout_app/database/*.duckdb
 *.csv
 *.jsonl
 *.pdf
-*.png
+# *.png
 *.jpg
 *.jpeg
 
 # --- Personal / Internal Tracking ---
 kpi_progress_tracking.md
 repo_feedback.md
-
+keplo_clone_idea_19jan26.md
 # --- Logs & Runtime ---
 *.log
 scout_app/logs/
