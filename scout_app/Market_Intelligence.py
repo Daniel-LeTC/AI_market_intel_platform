@@ -229,6 +229,33 @@ else:
     )
 
     if selected_asin:
+        # --- Handle ASIN Change Logic (With History Swap) ---
+        if "current_asin" not in st.session_state:
+            st.session_state["current_asin"] = selected_asin
+        
+        # Init Global History Vault
+        if "chat_histories" not in st.session_state:
+            st.session_state["chat_histories"] = {}
+
+        # If ASIN changed, Swap History & Reset Detective
+        if st.session_state["current_asin"] != selected_asin:
+            old_asin = st.session_state["current_asin"]
+            
+            # 1. Save OLD history to Vault
+            st.session_state["chat_histories"][old_asin] = st.session_state.messages
+            
+            # 2. Load NEW history from Vault (or empty if first time)
+            st.session_state.messages = st.session_state["chat_histories"].get(selected_asin, [])
+            
+            # 3. Reset Agent (Crucial: Agent must be reborn with new ASIN context)
+            st.session_state.detective = None 
+            if "detective" in st.session_state:
+                del st.session_state["detective"]
+            
+            # 4. Update Pointer & Rerun
+            st.session_state["current_asin"] = selected_asin
+            st.rerun()
+
         # --- Common Data Fetching ---
         dna_query = """
             SELECT 
