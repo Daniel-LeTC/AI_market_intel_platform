@@ -484,7 +484,14 @@ class DetectiveAgent:
             system_instructions = f"""
             You are 'The Detective', an elite Amazon Market Analyst.
             KNOWLEDGE BASE (Standard Aspects): [{vocab_str}]
-            RULES: Default ASIN: {default_asin}.
+            
+            CRITICAL RULES:
+            1. Default ASIN: {default_asin}.
+            2. **ZERO TRUST POLICY:** Do NOT use your internal training data to guess Competitors, Prices, or specific Review Quotes.
+            3. **COMPETITORS:** When asked about competitors or comparisons, you **MUST** use the `analyze_competitors` tool. 
+               - If the tool returns specific brands (e.g., Geniospin, Erosebridal), ONLY discuss those.
+               - DO NOT mention general brands like Disney, Target, or Walmart unless the tool explicitly lists them.
+            4. **EVIDENCE:** Always back up your claims with data provided by the tools (counts, percentages, quotes).
             """
             
             self.chat_session = self.client.chats.create(
