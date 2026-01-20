@@ -20,6 +20,8 @@ env
 *.bak
 *.swp
 AGENT.md
+GEMINI.md
+
 # --- Project Data (BIG NO-NO) ---
 archived/
 staging_data/

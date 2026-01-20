@@ -1,11 +1,12 @@
-import streamlit as st
-import requests
 import os
-import pandas as pd
-import time
-import duckdb
-from pathlib import Path
 import sys
+import time
+from pathlib import Path
+
+import duckdb
+import pandas as pd
+import requests
+import streamlit as st
 
 # Add root to sys.path to find core
 sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -14,38 +15,52 @@ from core.config import Settings
 # --- Configuration ---
 st.set_page_config(page_title="Admin Console", page_icon="🛡️", layout="wide")
 
-# CSS to fix long lines in code blocks (Word Wrap)
-st.markdown("""
+# --- ADMIN GATEKEEPER ---
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+if not st.session_state["authenticated"]:
+    st.warning("⚠️ Access Restricted. Please Login first.")
+    st.stop()
+
+if st.session_state.get("role") != "ADMIN":
+    st.error("⛔ ACCESS DENIED: Administrators Only.")
+    st.stop()
+
+# --- CSS & Path ---
+st.markdown(
+    """
     <style>
     .stCode code {
         white-space: pre-wrap !important;
         word-break: break-all !important;
     }
     </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
-# Paths
 BASE_DIR = Path(__file__).parent.parent.parent
 LOG_FILE = BASE_DIR / "scout_app/logs/worker.log"
 STAGING_DIR = BASE_DIR / "staging_data"
 WORKER_URL = os.getenv("WORKER_URL", "http://worker:8000")
 
-# --- Security ---
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 
 # --- DB Helpers (Direct for Admin) ---
 def get_db_path():
     return str(Settings.get_active_db_path())
 
+
 def query_df(sql, params=None):
     try:
         with duckdb.connect(get_db_path(), read_only=True) as conn:
             return conn.execute(sql, params).df()
-    except: return pd.DataFrame()
+    except:
+        return pd.DataFrame()
+
 
 def execute_sql(sql, params=None):
     try:
-        # We need RW access to update status
         with duckdb.connect(get_db_path(), read_only=False) as conn:
             conn.execute(sql, params)
         return True
@@ -53,56 +68,54 @@ def execute_sql(sql, params=None):
         st.error(f"SQL Error: {e}")
         return False
 
-if "authenticated" not in st.session_state:
-    st.session_state["authenticated"] = False
-
-def check_password():
-    if st.session_state["password_input"] == ADMIN_PASSWORD:
-        st.session_state["authenticated"] = True
-    else:
-        st.error("❌ Wrong Password")
-
-if not st.session_state["authenticated"]:
-    st.title("🛡️ Restricted Access")
-    st.text_input("Enter Admin Password", type="password", key="password_input", on_change=check_password)
-    st.stop()
 
 # --- Helpers ---
 def tail_log(lines=30):
     if not LOG_FILE.exists():
         return ["Waiting for logs..."]
     try:
-        with open(LOG_FILE, "r") as f:
+        with open(LOG_FILE) as f:
             return f.readlines()[-lines:]
     except Exception:
         return ["Error reading log file."]
 
+
 def list_staging_files():
     if not STAGING_DIR.exists():
         return []
-    return sorted(list(STAGING_DIR.glob("*.xlsx")) + list(STAGING_DIR.glob("*.jsonl")), key=os.path.getmtime, reverse=True)
+    return sorted(
+        list(STAGING_DIR.glob("*.xlsx")) + list(STAGING_DIR.glob("*.jsonl")),
+        key=os.path.getmtime,
+        reverse=True,
+    )
+
 
 # --- UI ---
 st.title("🛡️ Gatekeeper Control Center")
+st.caption(f"Welcome, **{st.session_state['username']}**")
 
 # Tabs
-tab_req, tab_scrape, tab_staging, tab_ai, tab_logs = st.tabs(["📥 User Requests", "🕷️ Scrape Room", "📦 Staging Area", "🧠 AI Operations", "📟 Terminal"])
+tab_req, tab_scrape, tab_staging, tab_ai, tab_logs = st.tabs(
+    ["📥 User Requests", "🕷️ Scrape Room", "📦 Staging Area", "🧠 AI Operations", "📟 Terminal"]
+)
 
 # --- TAB 0: USER REQUESTS ---
 with tab_req:
     st.header("ASIN Request Queue")
-    
+
     # Load data
-    df_req = query_df("SELECT request_id, asin, note, priority, status, created_at FROM scrape_queue WHERE status = 'PENDING_APPROVAL' ORDER BY created_at DESC")
-    
+    df_req = query_df(
+        "SELECT request_id, asin, note, priority, status, created_at FROM scrape_queue WHERE status = 'PENDING_APPROVAL' ORDER BY created_at DESC"
+    )
+
     if df_req.empty:
         st.success("🎉 All requests cleared!")
     else:
         # Add 'Select' column for checkbox UI
         df_req.insert(0, "Select", False)
-        
+
         st.caption("Double-click cells to Edit ASIN/Note. Tick 'Select' to Approve in Batch.")
-        
+
         # Editable Dataframe
         edited_df = st.data_editor(
             df_req,
@@ -116,15 +129,15 @@ with tab_req:
             hide_index=True,
             use_container_width=True,
             num_rows="dynamic",
-            key="req_editor"
+            key="req_editor",
         )
-        
+
         col_act1, col_act2 = st.columns([1, 4])
         with col_act1:
             if st.button("🚀 Approve Selected", type="primary"):
                 # Filter selected rows
                 selected_rows = edited_df[edited_df["Select"] == True]
-                
+
                 if selected_rows.empty:
                     st.warning("Please tick at least one row.")
                 else:
@@ -136,11 +149,11 @@ with tab_req:
                             SET status = 'READY_TO_SCRAPE', asin = ?, note = ?
                             WHERE request_id = ?
                         """
-                        execute_sql(sql_update, [row['asin'], row['note'], row['request_id']])
-                        approved_asins.append(row['asin'])
-                    
+                        execute_sql(sql_update, [row["asin"], row["note"], row["request_id"]])
+                        approved_asins.append(row["asin"])
+
                     # Store in session state to trigger scrape in Tab 1 or here directly
-                    st.session_state['approved_batch'] = approved_asins
+                    st.session_state["approved_batch"] = approved_asins
                     st.success(f"✅ Approved {len(approved_asins)} items!")
                     st.rerun()
 
@@ -149,29 +162,34 @@ with tab_req:
                 selected_rows = edited_df[edited_df["Select"] == True]
                 if not selected_rows.empty:
                     for _, row in selected_rows.iterrows():
-                        execute_sql("UPDATE scrape_queue SET status = 'REJECTED' WHERE request_id = ?", [row['request_id']])
+                        execute_sql(
+                            "UPDATE scrape_queue SET status = 'REJECTED' WHERE request_id = ?", [row["request_id"]]
+                        )
                     st.success("Moved to Rejected.")
                     time.sleep(1)
                     st.rerun()
-    
+
     # --- AUTO-LAUNCH SECTION (Post-Approval) ---
-    if 'approved_batch' in st.session_state and st.session_state['approved_batch']:
+    if "approved_batch" in st.session_state and st.session_state["approved_batch"]:
         st.divider()
         st.info(f"🚀 **Ready to Launch:** {len(st.session_state['approved_batch'])} ASINs pending execution.")
-        st.code(", ".join(st.session_state['approved_batch']), language="text")
-        
+        st.code(", ".join(st.session_state["approved_batch"]), language="text")
+
         c_launch, c_clear = st.columns([1, 4])
         with c_launch:
             if st.button("🔥 Launch Scraper Now", type="primary"):
                 try:
-                    payload = {"asins": st.session_state['approved_batch']}
+                    payload = {"asins": st.session_state["approved_batch"]}
                     res = requests.post(f"{WORKER_URL}/trigger/scrape", json=payload, timeout=5)
                     if res.status_code == 202:
                         st.success(f"✅ Scraper Dispatched! Status: {res.json().get('status')}")
                         # Update status to PROCESSING
-                        placeholders = ','.join(['?'] * len(st.session_state['approved_batch']))
-                        execute_sql(f"UPDATE scrape_queue SET status = 'PROCESSING' WHERE asin IN ({placeholders}) AND status = 'READY_TO_SCRAPE'", st.session_state['approved_batch'])
-                        del st.session_state['approved_batch']
+                        placeholders = ",".join(["?" ] * len(st.session_state["approved_batch"]))
+                        execute_sql(
+                            f"UPDATE scrape_queue SET status = 'PROCESSING' WHERE asin IN ({placeholders}) AND status = 'READY_TO_SCRAPE'",
+                            st.session_state["approved_batch"],
+                        )
+                        del st.session_state["approved_batch"]
                         time.sleep(2)
                         st.rerun()
                     else:
@@ -180,19 +198,19 @@ with tab_req:
                     st.error(f"Worker connection failed: {e}")
         with c_clear:
             if st.button("Cancel / Clear"):
-                del st.session_state['approved_batch']
+                del st.session_state["approved_batch"]
                 st.rerun()
 
 # --- TAB 1: SCRAPE ROOM ---
 with tab_scrape:
     st.header("Hot Plug Scraper")
     st.info("Files will be downloaded to Staging Area. They are NOT ingested automatically.")
-    
+
     col1, col2 = st.columns([3, 1])
     with col1:
         asins_input = st.text_area("Enter ASINs (one per line or comma separated)", height=100)
     with col2:
-        st.write("") # Spacer
+        st.write("")  # Spacer
         st.write("")
         scrape_btn = st.button("🚀 Launch Scraper", type="primary", use_container_width=True)
 
@@ -214,7 +232,7 @@ with tab_scrape:
 with tab_staging:
     st.header("Staging Data Manager")
     st.markdown("Verify and Ingest files into the Main Database.")
-    
+
     if st.button("🔄 Refresh List"):
         st.rerun()
 
@@ -248,16 +266,19 @@ with tab_staging:
 # --- TAB 3: AI OPS ---
 with tab_ai:
     st.header("AI Operations")
-    
+
     with st.expander("💡 PRO TIP: Save 50% Cost with BATCH Mode", expanded=False):
-        st.markdown("""
+        st.markdown(
+            """
         **Live Mode** is expensive for large datasets (> 1000 reviews). 
         Use **Batch Mode** via the **Terminal Tab** to reduce costs significantly:
         
         1. Select `python manage.py batch-submit-miner` in the Dropdown Palette.
         2. Wait for completion (check via `batch-status`).
         3. Collect results via `batch-collect`.
-        """, unsafe_allow_html=True)
+        """,
+            unsafe_allow_html=True,
+        )
 
     c1, c2 = st.columns(2)
     with c1:
@@ -267,8 +288,9 @@ with tab_ai:
             try:
                 requests.post(f"{WORKER_URL}/trigger/miner", params={"limit": limit}, timeout=2)
                 st.toast("Miner Started!")
-            except: st.error("Worker Offline")
-    
+            except:
+                st.error("Worker Offline")
+
     with c2:
         st.markdown("#### 🧹 Janitor (Normalize Tags)")
         st.markdown("Clean raw tags into standards.")
@@ -276,13 +298,14 @@ with tab_ai:
             try:
                 requests.post(f"{WORKER_URL}/trigger/janitor", timeout=2)
                 st.toast("Janitor Started!")
-            except: st.error("Worker Offline")
+            except:
+                st.error("Worker Offline")
 
 # --- TAB 4: TERMINAL (Safe Command Palette) ---
 with tab_logs:
     st.header("🛠️ Quick Commands")
     st.caption("Execute on-demand commands directly within the worker container.")
-    
+
     col_cmd, col_btn = st.columns([3, 1])
     with col_cmd:
         cmd_choice = st.selectbox(
@@ -294,12 +317,12 @@ with tab_logs:
                 "python manage.py batch-collect",
                 "python manage.py batch-submit-miner --limit 5000",
                 "python manage.py batch-submit-janitor",
-                "tail -n 100 scout_app/logs/worker.log"
-            ]
+                "tail -n 100 scout_app/logs/worker.log",
+            ],
         )
     with col_btn:
-        st.write("") # Spacer
-        st.write("") # Spacer
+        st.write("")  # Spacer
+        st.write("")  # Spacer
         run_cmd = st.button("▶️ Run Command", type="primary", use_container_width=True)
 
     # --- NEW: DB DEDUP INTEGRATION ---
@@ -313,15 +336,20 @@ with tab_logs:
                 if res.status_code == 200:
                     s = res.json()
                     st.info(f"Active: `{s['active_db']}` | Duplicates: **{s['duplicates']}**")
-                else: st.error(res.text)
-            except: st.error("Worker Offline")
+                else:
+                    st.error(res.text)
+            except:
+                st.error("Worker Offline")
     with d_col2:
         if st.button("🔥 Run Smart Dedup", use_container_width=True):
             try:
                 res = requests.post(f"{WORKER_URL}/admin/dedup/run", timeout=5)
-                if res.status_code == 202: st.success("🚀 Dedup Task Dispatched!")
-                else: st.error(res.text)
-            except: st.error("Worker Offline")
+                if res.status_code == 202:
+                    st.success("🚀 Dedup Task Dispatched!")
+                else:
+                    st.error(res.text)
+            except:
+                st.error("Worker Offline")
 
     # --- RESULT AREA ---
     if run_cmd:
@@ -331,10 +359,10 @@ with tab_logs:
             if res.status_code == 200:
                 data = res.json()
                 st.success(f"Executed: `{data['cmd']}` (Code: {data['returncode']})")
-                if data['stdout']:
-                    st.code(data['stdout'], language="bash")
-                if data['stderr']:
-                    st.error(data['stderr'])
+                if data["stdout"]:
+                    st.code(data["stdout"], language="bash")
+                if data["stderr"]:
+                    st.error(data["stderr"])
             else:
                 st.error(f"Error: {res.text}")
         except Exception as e:
@@ -345,7 +373,7 @@ with tab_logs:
     st.caption("Persistent log of all background activities (Scraping, Ingesting, Mining).")
     if st.button("🔄 Refresh History"):
         st.rerun()
-    
+
     logs = tail_log(50)
     log_text = "".join(logs)
     st.code(log_text, language="bash", line_numbers=True)

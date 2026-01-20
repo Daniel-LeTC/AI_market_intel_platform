@@ -2,13 +2,54 @@ import streamlit as st
 import requests
 import os
 import pandas as pd
-from datetime import datetime
+import duckdb
+import sys
+from pathlib import Path
+
+# Add root to sys.path to find core
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from core.config import Settings
+from core.auth import AuthManager # Import AuthManager
+from core.wallet import WalletGuard
 
 # --- Config ---
 st.set_page_config(page_title="Social Scout", page_icon="📱", layout="wide")
 WORKER_URL = os.getenv("WORKER_URL", "http://worker:8000")
 
-# --- UI Header ---
+# --- AUTHENTICATION GATEKEEPER ---
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+    
+# Ensure keys exist
+if "user_id" not in st.session_state: st.session_state["user_id"] = None
+if "role" not in st.session_state: st.session_state["role"] = None
+if "username" not in st.session_state: st.session_state["username"] = None
+
+if not st.session_state["authenticated"]:
+    # Login Page Layout (Replicated from Main)
+    c1, c2, c3 = st.columns([1, 1, 1])
+    with c2:
+        st.markdown("# 🔐 Social Scout Login")
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            submit = st.form_submit_button("Login")
+            
+            if submit:
+                auth = AuthManager()
+                user = auth.verify_user(username, password)
+                if user:
+                    st.session_state["authenticated"] = True
+                    st.session_state["user_id"] = user["user_id"]
+                    st.session_state["username"] = user["username"]
+                    st.session_state["role"] = user["role"]
+                    st.success(f"Welcome back, {user['username']}!")
+                    st.rerun()
+                else:
+                    st.error("Invalid username or password.")
+    st.stop() # STOP HERE IF NOT LOGGED IN
+
+# --- UI Header (Only shows if logged in) ---
 st.title("📱 Social Scout Intelligence")
 st.markdown("""
     *Reverse Engineer Trends & Spy on Competitor Ads.* 
@@ -18,11 +59,19 @@ st.markdown("""
 # --- Helper: API Calls ---
 def call_social_api(endpoint, method="POST", json_data=None):
     try:
+        # Pass user_id explicitly if authenticated
+        if st.session_state.get("authenticated") and json_data:
+            json_data["user_id"] = st.session_state["user_id"]
+            
         url = f"{WORKER_URL}/social{endpoint}"
         if method == "POST":
             resp = requests.post(url, json=json_data, timeout=10)
         else:
             resp = requests.get(url, timeout=10)
+            
+        if resp.status_code in [402]: # Payment Required
+            return {"error": f"Insufficient Funds. {resp.json().get('detail')}"}
+            
         return resp.json()
     except Exception as e:
         return {"error": str(e)}
@@ -46,10 +95,10 @@ with tab_tt:
                 res_cost = call_social_api("/estimate_cost", json_data={"platform": "tiktok", "limit": tt_limit, "task_type": "feed"})
                 if "error" not in res_cost:
                     cost = res_cost['estimated_cost_usd']
-                    st.metric("Estimated Cost", f"${cost:.3f}")
+                    st.metric("Estimated Cost", f"${cost:.4f}")
                     st.success("🟢 Safe to run (Cheap)")
                 else:
-                    st.error("Worker Offline")
+                    st.error(res_cost["error"])
 
         if st.button("🚀 Launch Feed Scraper", type="primary"):
             if not tt_keywords:
@@ -76,24 +125,28 @@ with tab_tt:
     if not feed_files:
         st.info("ℹ️ No feed data found. Run Step 1 first.")
     else:
-        selected_file = st.selectbox("Select Feed File:", sorted(feed_files, reverse=True))
+        # Sort by Modified Time (Newest First) instead of Name (to handle UTC vs Local name clashes)
+        feed_files.sort(key=lambda x: os.path.getmtime(os.path.join(staging_dir, x)), reverse=True)
+        selected_file = st.selectbox("Select Feed File:", feed_files)
         
         if selected_file:
             try:
-                df_feed = pd.read_csv(os.path.join(staging_dir, selected_file))
+                # Load CSV and Force String Types for IDs to prevent overflow
+                df_feed = pd.read_csv(os.path.join(staging_dir, selected_file), dtype={"post_id": str, "id": str})
                 
+                # Normalize ID column (handle old 'id' vs new 'post_id')
+                if "post_id" not in df_feed.columns and "id" in df_feed.columns:
+                    df_feed["post_id"] = df_feed["id"].astype(str)
+
                 # FIX: Ensure 'desc' is string to avoid Streamlit Float Error on NaN
-                if "desc" in df_feed.columns:
-                    df_feed["desc"] = df_feed["desc"].astype(str).replace("nan", "")
+                target_text_col = "text" if "text" in df_feed.columns else "desc"
+                if target_text_col in df_feed.columns:
+                    df_feed[target_text_col] = df_feed[target_text_col].astype(str).replace("nan", "")
                 
                 # FIX: Ensure 'url' is string
                 if "url" in df_feed.columns:
                     df_feed["url"] = df_feed["url"].astype(str).replace("nan", "")
 
-                # FIX: Convert ID to string to prevent JS BigInt precision loss
-                if "id" in df_feed.columns:
-                    df_feed["id"] = df_feed["id"].astype(str)
-                
                 # Show Selector
                 st.caption("Tick videos to scrape comments:")
                 df_feed.insert(0, "Select", False)
@@ -103,7 +156,8 @@ with tab_tt:
                     column_config={
                         "Select": st.column_config.CheckboxColumn(required=True),
                         "url": st.column_config.LinkColumn("Video Link"),
-                        "desc": st.column_config.TextColumn("Description", width="medium"),
+                        "post_id": st.column_config.TextColumn("ID"), # Explicitly Text
+                        target_text_col: st.column_config.TextColumn("Description", width="medium"),
                         "views": st.column_config.NumberColumn("Views"),
                         "likes": st.column_config.NumberColumn("Likes"),
                     },
@@ -130,7 +184,7 @@ with tab_tt:
                         res_est = call_social_api("/estimate_cost", json_data={"platform": "tiktok", "limit": total_items, "task_type": "comments"})
                         if "error" not in res_est:
                             cost_est = res_est['estimated_cost_usd']
-                            st.metric(f"Est. Cost ({num_selected} Vids)", f"${cost_est:.3f}")
+                            st.metric(f"Est. Cost ({num_selected} Vids)", f"${cost_est:.4f}")
                             
                             if st.button("🔥 Launch Comment Scraper", type="primary"):
                                 vid_urls = selected_rows['url'].tolist()
@@ -145,7 +199,7 @@ with tab_tt:
                                 else:
                                     st.error(f"Failed: {res_cmt['error']}")
                         else:
-                            st.error("Worker Offline")
+                            st.error(f"Error: {res_est['error']}")
                     else:
                         st.info("Select videos to estimate cost.")
                         
@@ -169,10 +223,10 @@ with tab_meta:
                 res_cost = call_social_api("/estimate_cost", json_data={"platform": "facebook", "limit": fb_limit, "task_type": "feed"})
                 if "error" not in res_cost:
                     cost = res_cost['estimated_cost_usd']
-                    st.metric("Estimated Cost", f"${cost:.3f}")
+                    st.metric("Estimated Cost", f"${cost:.4f}")
                     st.warning("🟡 Moderate Cost")
                 else:
-                    st.error("Worker Offline")
+                    st.error(res_cost["error"])
 
         if st.button("🚀 Launch Facebook Search", type="primary", key="fb_launch"):
             if not fb_keywords:
@@ -199,11 +253,18 @@ with tab_meta:
     if not fb_feed_files:
         st.info("ℹ️ No FB feed data found. Run Step 1 first.")
     else:
-        sel_fb_file = st.selectbox("Select Feed File:", sorted(fb_feed_files, reverse=True), key="fb_sel_file")
+        # Sort by Modified Time
+        fb_feed_files.sort(key=lambda x: os.path.getmtime(os.path.join(staging_dir, x)), reverse=True)
+        sel_fb_file = st.selectbox("Select Feed File:", fb_feed_files, key="fb_sel_file")
         
         if sel_fb_file:
             try:
-                df_fb = pd.read_csv(os.path.join(staging_dir, sel_fb_file))
+                # Load CSV with explicit types
+                df_fb = pd.read_csv(os.path.join(staging_dir, sel_fb_file), dtype={"post_id": str, "id": str})
+                
+                # Normalize ID
+                if "post_id" not in df_fb.columns and "id" in df_fb.columns:
+                    df_fb["post_id"] = df_fb["id"].astype(str)
                 
                 # FIX: Ensure 'text' is string
                 if "text" in df_fb.columns:
@@ -213,16 +274,12 @@ with tab_meta:
                 if "url" in df_fb.columns:
                     df_fb["url"] = df_fb["url"].astype(str).replace("nan", "")
 
-                # FIX: Convert ID to string
-                if "id" in df_fb.columns:
-                    df_fb["id"] = df_fb["id"].astype(str)
-
                 st.caption("Tick posts to scrape comments:")
                 if "Select" not in df_fb.columns:
                     df_fb.insert(0, "Select", False)
                 
                 # Check required columns exist
-                cols_config = {"Select": st.column_config.CheckboxColumn(required=True)}
+                cols_config = {"Select": st.column_config.CheckboxColumn(required=True), "post_id": st.column_config.TextColumn("ID")}
                 if "url" in df_fb.columns: cols_config["url"] = st.column_config.LinkColumn("Post Link")
                 if "text" in df_fb.columns: cols_config["text"] = st.column_config.TextColumn("Content", width="medium")
                 
@@ -252,28 +309,22 @@ with tab_meta:
                         res_est = call_social_api("/estimate_cost", json_data={"platform": "facebook", "limit": total_items, "task_type": "comments"})
                         if "error" not in res_est:
                             cost_est = res_est['estimated_cost_usd']
-                            st.metric(f"Est. Cost ({num_fb_sel} Posts)", f"${cost_est:.3f}")
+                            st.metric(f"Est. Cost ({num_fb_sel} Posts)", f"${cost_est:.4f}")
                             
                             if st.button("🔥 Launch Comment Scraper", type="primary", key="fb_launch_cmt"):
                                 post_urls = sel_fb_rows['url'].tolist()
                                 payload_cmt = {
-                                    "video_urls": post_urls, # Using same key for compatibility, handled in backend
+                                    "video_urls": post_urls, 
                                     "max_comments_per_video": fb_max_comments,
-                                    "platform": "facebook" # IMPORTANT: Backend must handle this flag
+                                    "platform": "facebook" 
                                 }
-                                # Wait, backend 'CommentRequest' defaults to tiktok platform? Need to check router.
-                                # Quick fix: Add 'platform' to CommentRequest model in Router if not exist.
-                                # Let's assume Router update is needed or generic.
-                                # Actually, Core Scraper has scrape_facebook_comments.
-                                # We need to ensure Router passes the platform correctly.
-                                
                                 res_cmt = call_social_api("/trigger_comments", json_data=payload_cmt)
                                 if "error" not in res_cmt:
                                     st.success(f"✅ Dispatched! Scraping comments...")
                                 else:
                                     st.error(f"Failed: {res_cmt['error']}")
                         else:
-                            st.error("Worker Offline")
+                            st.error(f"Error: {res_est['error']}")
                     else:
                         st.info("Select posts to estimate cost.")
                         
@@ -291,11 +342,14 @@ with tab_vault:
         if not files:
             st.info("No social data files found yet.")
         else:
-            for f in sorted(files, reverse=True):
+            # Sort by Modified Time
+            files.sort(key=lambda x: os.path.getmtime(os.path.join(staging_dir, x)), reverse=True)
+            for f in files:
                 with st.expander(f"📄 {f}", expanded=False):
                     f_path = os.path.join(staging_dir, f)
                     try:
-                        df = pd.read_csv(f_path)
+                        # Load with dtype str for ID
+                        df = pd.read_csv(f_path, dtype={"post_id": str, "id": str, "comment_id": str})
                         st.dataframe(df.head(10), use_container_width=True)
                         c1, c2 = st.columns(2)
                         with c1:
@@ -309,10 +363,41 @@ with tab_vault:
     else:
         st.error("Staging directory missing.")
 
-# --- SIDEBAR ---
+# --- SIDEBAR (WALLET INFO) ---
 st.sidebar.markdown("---")
 st.sidebar.subheader("🛡️ Wallet Guard Status")
-st.sidebar.write("Budget Cap: **$20.00 / Month**")
-st.sidebar.progress(0.15, text="Spend: $3.15 (Mocked)")
+
+if "user_id" in st.session_state:
+    try:
+        wallet = WalletGuard()
+        balance = wallet.get_balance(st.session_state["user_id"])
+        
+        # Get Budget Info (Need to query DB or add method to WalletGuard)
+        # For now, let's just get balance. WalletGuard.get_balance returns (Budget - Spend) = Remaining
+        # Wait, check WalletGuard.get_balance implementation.
+        # It returns max(0.0, budget - spend). So it is REMAINING FUNDS.
+        
+        # Let's get raw numbers for better UI
+        with duckdb.connect(str(Settings.SYSTEM_DB), read_only=True) as conn:
+            row = conn.execute("SELECT monthly_budget, current_spend FROM users u JOIN user_wallets w ON u.user_id = w.user_id WHERE u.user_id = ?", [st.session_state["user_id"]]).fetchone()
+            if row:
+                budget_cap, spent = row
+                pct = min(1.0, spent / budget_cap) if budget_cap > 0 else 0.0
+                
+                st.sidebar.write(f"Budget Cap: **${budget_cap:.2f}**")
+                st.sidebar.progress(pct, text=f"Spent: ${spent:.4f}")
+                
+                if pct >= 0.9:
+                    st.sidebar.error("⚠️ Budget Critical!")
+                elif pct >= 0.75:
+                    st.sidebar.warning("⚠️ Budget Low")
+            else:
+                st.sidebar.warning("Wallet not found.")
+                
+    except Exception as e:
+        st.sidebar.error(f"Wallet Error: {e}")
+else:
+    st.sidebar.info("Please Login to view Wallet.")
+
 st.sidebar.markdown("---")
 st.sidebar.caption("Powered by Apify Flash APIs")

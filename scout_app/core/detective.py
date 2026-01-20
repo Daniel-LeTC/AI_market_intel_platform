@@ -6,6 +6,7 @@ import pandas as pd
 from google import genai
 from google.genai import types
 from .config import Settings
+from .logger import log_event
 
 # --- Config ---
 MODEL_NAME = Settings.GEMINI_MODEL 
@@ -304,7 +305,150 @@ class DetectiveAgent:
         except Exception as e:
             return f"Context Analysis Error: {e}"
 
-    def answer(self, user_query: str, default_asin: str = None):
+    def generate_listing_content(self, asin: str, tone: str = "Persuasive") -> str:
+        """Generates SEO Title and 5 Bullet Points based on Pain Points & Strengths."""
+        try:
+            # 1. Get DNA
+            dna_query = "SELECT title, material, main_niche, target_audience FROM products WHERE asin = ? OR parent_asin = ? LIMIT 1"
+            dna_df = self._run_query(dna_query, [asin, asin])
+            dna_str = dna_df.iloc[0].to_json() if not dna_df.empty else "N/A"
+
+            # 2. Get Top Pain Points (to solve)
+            pain_query = """
+                SELECT COALESCE(am.standard_aspect, rt.aspect) as aspect, COUNT(*) as cnt 
+                FROM review_tags rt LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect 
+                WHERE rt.parent_asin = ? AND rt.sentiment = 'Negative' 
+                GROUP BY 1 ORDER BY 2 DESC LIMIT 5
+            """
+            pain_df = self._run_query(pain_query, [asin])
+            pain_str = ", ".join(pain_df['aspect'].tolist()) if not pain_df.empty else "None"
+
+            # 3. Get Top Strengths (to highlight)
+            pos_query = """
+                SELECT COALESCE(am.standard_aspect, rt.aspect) as aspect, COUNT(*) as cnt 
+                FROM review_tags rt LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect 
+                WHERE rt.parent_asin = ? AND rt.sentiment = 'Positive' 
+                GROUP BY 1 ORDER BY 2 DESC LIMIT 5
+            """
+            pos_df = self._run_query(pos_query, [asin])
+            pos_str = ", ".join(pos_df['aspect'].tolist()) if not pos_df.empty else "None"
+
+            return json.dumps({
+                "action": "generate_listing",
+                "dna": dna_str,
+                "solve_pain_points": pain_str,
+                "highlight_strengths": pos_str,
+                "tone": tone
+            })
+        except Exception as e:
+            return f"Error generating content data: {e}"
+
+    def analyze_competitors(self, asin: str) -> str:
+        """Finds real competitors in DB using Smart Fallback (Niche -> Line/Material) and compares them."""
+        try:
+            # 1. Get DNA of Current Product
+            dna_query = "SELECT parent_asin, main_niche, product_line, material, target_audience FROM products WHERE asin = ? OR parent_asin = ? LIMIT 1"
+            dna_df = self._run_query(dna_query, [asin, asin])
+            
+            if dna_df.empty:
+                return "Product DNA not found. Cannot identify competitors."
+            
+            dna = dna_df.iloc[0]
+            current_parent = dna['parent_asin']
+            niche = dna['main_niche']
+            line = dna['product_line']
+            mat = dna['material']
+
+            # 2. Build Query with Fallback Logic
+            params = [current_parent]
+            conditions = []
+            
+            # Tier 1: Niche Match (If valid)
+            if niche and niche not in ['None', 'Non-defined', 'null', None]:
+                conditions.append(f"main_niche = '{niche}'")
+            
+            # Tier 2: Line + Material Match (Fallback)
+            if line and mat:
+                conditions.append(f"(product_line = '{line}' AND material = '{mat}')")
+            
+            if not conditions:
+                return "Product has no distinct Niche or Specs to compare against."
+
+            where_clause = " OR ".join(conditions)
+            
+            comp_query = f"""
+                SELECT 
+                    p.parent_asin, 
+                    ANY_VALUE(p.title) as title, 
+                    ANY_VALUE(p.brand) as brand, 
+                    AVG(r.rating_score) as rating, 
+                    COUNT(r.review_id) as reviews
+                FROM products p
+                JOIN reviews r ON p.asin = r.child_asin
+                WHERE p.parent_asin != ? 
+                AND ({where_clause})
+                GROUP BY p.parent_asin
+                HAVING reviews > 5
+                ORDER BY rating DESC, reviews DESC
+                LIMIT 3
+            """
+            
+            comps_df = self._run_query(comp_query, params)
+            
+            if comps_df.empty:
+                return f"No direct competitors found in DB (Checked Niche: {niche}, Line: {line})."
+
+            # 3. Get Current ASIN Weaknesses
+            my_weak_query = """
+                SELECT COALESCE(am.standard_aspect, rt.aspect) as aspect
+                FROM review_tags rt LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect
+                WHERE rt.parent_asin = ? AND rt.sentiment = 'Negative'
+                GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 3
+            """
+            my_weak_df = self._run_query(my_weak_query, [current_parent])
+            my_weaknesses = my_weak_df['aspect'].tolist() if not my_weak_df.empty else []
+
+            # 4. Analyze Each Competitor
+            results = []
+            for _, row in comps_df.iterrows():
+                comp_asin = row['parent_asin']
+                strengths = []
+                
+                if my_weaknesses:
+                    for weak_point in my_weaknesses:
+                        s_query = """
+                            SELECT COUNT(*) FROM review_tags rt 
+                            LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect
+                            WHERE rt.parent_asin = ? 
+                            AND (am.standard_aspect = ? OR rt.aspect = ?) 
+                            AND rt.sentiment = 'Positive'
+                        """
+                        try:
+                            res = self._run_query(s_query, [comp_asin, weak_point, weak_point], fetch_df=False)
+                            count = res[0][0] if res else 0
+                        except: count = 0
+                        
+                        if count > 0:
+                            strengths.append(f"Better at '{weak_point}' ({count} positive mentions)")
+                
+                results.append({
+                    "competitor_brand": row['brand'],
+                    "competitor_title": row['title'][:50] + "...",
+                    "rating": round(row['rating'], 2),
+                    "review_count": row['reviews'],
+                    "advantage_over_us": strengths if strengths else "No clear advantage in our weak areas."
+                })
+
+            return json.dumps({
+                "analysis_logic": f"Compared against competitors in Niche '{niche}' or Line '{line}'.",
+                "our_weaknesses": my_weaknesses,
+                "competitors": results
+            })
+
+        except Exception as e:
+            return f"Competitor Analysis Error: {e}"
+
+    def answer(self, user_query: str, default_asin: str = None, user_id: str = "guest"):
         if not self.client:
             return "Gemini API Key is missing."
 
@@ -315,17 +459,21 @@ class DetectiveAgent:
             "find_better_alternatives": self.find_better_alternatives,
             "get_product_swot": self.get_product_swot,
             "compare_head_to_head": self.compare_head_to_head,
-            "analyze_customer_context": self.analyze_customer_context
+            "analyze_customer_context": self.analyze_customer_context,
+            "generate_listing_content": self.generate_listing_content,
+            "analyze_competitors": self.analyze_competitors
         }
         
-        # Tool declarations (Keeping schema same as before)
+        # Tool declarations
         tool_declarations = [types.Tool(function_declarations=[
             types.FunctionDeclaration(name="get_product_dna", description="Get technical specs and variation stats.", parameters=types.Schema(type="OBJECT", properties={"asin": types.Schema(type="STRING")}, required=["asin"])),
             types.FunctionDeclaration(name="get_product_swot", description="Get SWOT analysis.", parameters=types.Schema(type="OBJECT", properties={"asin": types.Schema(type="STRING")}, required=["asin"])),
             types.FunctionDeclaration(name="search_review_evidence", description="Search quotes.", parameters=types.Schema(type="OBJECT", properties={"asin": types.Schema(type="STRING"), "aspect": types.Schema(type="STRING"), "sentiment": types.Schema(type="STRING"), "keyword": types.Schema(type="STRING")}, required=["asin"])),
             types.FunctionDeclaration(name="find_better_alternatives", description="Find alternatives.", parameters=types.Schema(type="OBJECT", properties={"current_asin": types.Schema(type="STRING"), "aspect_criteria": types.Schema(type="STRING")}, required=["current_asin"])),
             types.FunctionDeclaration(name="compare_head_to_head", description="Compare two products.", parameters=types.Schema(type="OBJECT", properties={"asin_a": types.Schema(type="STRING"), "asin_b": types.Schema(type="STRING")}, required=["asin_a", "asin_b"])),
-            types.FunctionDeclaration(name="analyze_customer_context", description="Analyze context.", parameters=types.Schema(type="OBJECT", properties={"asin": types.Schema(type="STRING")}, required=["asin"]))
+            types.FunctionDeclaration(name="analyze_customer_context", description="Analyze context.", parameters=types.Schema(type="OBJECT", properties={"asin": types.Schema(type="STRING")}, required=["asin"])),
+            types.FunctionDeclaration(name="generate_listing_content", description="Generate Amazon Title and Bullet Points.", parameters=types.Schema(type="OBJECT", properties={"asin": types.Schema(type="STRING"), "tone": types.Schema(type="STRING")}, required=["asin"])),
+            types.FunctionDeclaration(name="analyze_competitors", description="Find real competitors in DB and compare strengths/weaknesses.", parameters=types.Schema(type="OBJECT", properties={"asin": types.Schema(type="STRING")}, required=["asin"]))
         ])]
 
         # Init session
@@ -344,6 +492,7 @@ class DetectiveAgent:
                 config=types.GenerateContentConfig(tools=tool_declarations, system_instruction=system_instructions)
             )
 
+        final_response_text = ""
         try:
             response = self.chat_session.send_message(user_query)
             max_turns = 10
@@ -360,11 +509,25 @@ class DetectiveAgent:
                         parts.append(types.Part(function_response=types.FunctionResponse(name=fname, response={"result": result})))
                     response = self.chat_session.send_message(parts)
                 else:
-                    return response.text
-            return "Agent got stuck in a loop."
+                    final_response_text = response.text
+                    break
+            
+            if not final_response_text:
+                final_response_text = "Agent got stuck in a loop."
+
         except Exception as e:
             self.chat_session = None
-            return f"Detective Error: {e}"
+            final_response_text = f"Detective Error: {e}"
+
+        # --- LOGGING ---
+        log_event("chat_history", {
+            "user_id": user_id,
+            "asin": default_asin,
+            "query": user_query,
+            "response": final_response_text
+        })
+
+        return final_response_text
 
 if __name__ == "__main__":
     agent = DetectiveAgent()

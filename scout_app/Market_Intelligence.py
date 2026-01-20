@@ -1,28 +1,68 @@
-import streamlit as st
-import duckdb
-import pandas as pd
-import plotly.express as px
 import os
 import re
 import sys
 import uuid
 from pathlib import Path
 
+import duckdb
+import pandas as pd
+import plotly.express as px
+import streamlit as st
+
 # Add root to sys.path to find core
 sys.path.append(str(Path(__file__).resolve().parent.parent))
+from core.auth import AuthManager
 from core.config import Settings
 
 # --- Config ---
-st.set_page_config(
-    page_title="RnD Scout - Market Intelligence",
-    page_icon="🕵️",
-    layout="wide"
-)
+st.set_page_config(page_title="Market Intelligence", page_icon="🕵️", layout="wide")
+
+# --- AUTHENTICATION GATEKEEPER ---
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+# Ensure keys exist to avoid KeyError
+if "user_id" not in st.session_state:
+    st.session_state["user_id"] = None
+if "role" not in st.session_state:
+    st.session_state["role"] = None
+if "username" not in st.session_state:
+    st.session_state["username"] = None
+
+if not st.session_state["authenticated"]:
+    # Login Page Layout
+    c1, c2, c3 = st.columns([1, 1, 1])
+    with c2:
+        st.markdown("# 🔐 Login")
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            submit = st.form_submit_button("Login")
+
+            if submit:
+                auth = AuthManager()
+                user = auth.verify_user(username, password)
+                if user:
+                    st.session_state["authenticated"] = True
+                    st.session_state["user_id"] = user["user_id"]
+                    st.session_state["username"] = user["username"]
+                    st.session_state["role"] = user["role"]
+                    st.success(f"Welcome back, {user['username']}!")
+                    st.rerun()
+                else:
+                    st.error("Invalid username or password.")
+    st.stop()  # Stop execution if not logged in
+
+# --- MAIN APP (Authenticated) ---
+current_user_id = st.session_state["user_id"]
+current_username = st.session_state["username"]
+
 
 # --- Database Helpers (Blue-Green Aware) ---
 def get_db_path():
     """Get the current ACTIVE database path (Read-Only Target)"""
     return str(Settings.get_active_db_path())
+
 
 def query_df(sql, params=None):
     """Run query against ACTIVE DB."""
@@ -34,6 +74,7 @@ def query_df(sql, params=None):
         st.error(f"DB Error: {e}")
         return pd.DataFrame()
 
+
 def query_one(sql, params=None):
     try:
         db_path = get_db_path()
@@ -44,6 +85,7 @@ def query_one(sql, params=None):
         st.error(f"DB Error: {e}")
         return None
 
+
 def request_new_asin(asin_input, note="", force_update=False):
     """
     Smart Request Handler V2:
@@ -53,7 +95,7 @@ def request_new_asin(asin_input, note="", force_update=False):
     4. Flag Unknown ASINs.
     """
     db_path = get_db_path()
-    
+
     final_asin = asin_input
     system_note = ""
     is_unknown = False
@@ -61,8 +103,10 @@ def request_new_asin(asin_input, note="", force_update=False):
     try:
         with duckdb.connect(db_path, read_only=True) as conn:
             # 1. Lookup Product Logic
-            row = conn.execute("SELECT parent_asin FROM products WHERE asin = ? OR parent_asin = ? LIMIT 1", [asin_input, asin_input]).fetchone()
-            
+            row = conn.execute(
+                "SELECT parent_asin FROM products WHERE asin = ? OR parent_asin = ? LIMIT 1", [asin_input, asin_input]
+            ).fetchone()
+
             if row:
                 mapped_parent = row[0]
                 if mapped_parent and mapped_parent != asin_input:
@@ -70,15 +114,20 @@ def request_new_asin(asin_input, note="", force_update=False):
                     system_note = f"[Auto-Map] Child {asin_input} -> Parent {final_asin}"
             else:
                 is_unknown = True
-                system_note = f"[Unknown ASIN] Not in Product DB. Admin verify Parent."
+                system_note = "[Unknown ASIN] Not in Product DB. Admin verify Parent."
 
             # 2. Check Existing Data (Reviews)
-            rev_stats = conn.execute("SELECT COUNT(*), MAX(review_date) FROM reviews WHERE parent_asin = ?", [final_asin]).fetchone()
+            rev_stats = conn.execute(
+                "SELECT COUNT(*), MAX(review_date) FROM reviews WHERE parent_asin = ?", [final_asin]
+            ).fetchone()
             has_data = rev_stats[0] > 0
             last_date = rev_stats[1]
-            
+
             if has_data and not force_update:
-                return False, f"🛑 Đã có dữ liệu! Tìm thấy {rev_stats[0]} reviews (Mới nhất: {last_date}). Nếu cần cập nhật, hãy tick 'Force Update'."
+                return (
+                    False,
+                    f"🛑 Đã có dữ liệu! Tìm thấy {rev_stats[0]} reviews (Mới nhất: {last_date}). Nếu cần cập nhật, hãy tick 'Force Update'.",
+                )
 
             if has_data and force_update:
                 system_note += f" | [Force Update] Last Data: {last_date}"
@@ -99,12 +148,12 @@ def request_new_asin(asin_input, note="", force_update=False):
     req_id = str(uuid.uuid4())
     sql = """
         INSERT INTO scrape_queue (request_id, asin, status, requested_by, note)
-        VALUES (?, ?, 'PENDING_APPROVAL', 'user', ?)
+        VALUES (?, ?, 'PENDING_APPROVAL', ?, ?)
     """
     try:
         with duckdb.connect(db_path, read_only=False) as conn:
-            conn.execute(sql, [req_id, final_asin, full_note])
-        
+            conn.execute(sql, [req_id, final_asin, current_user_id, full_note])
+
         # Success Messages
         if is_unknown:
             return False, f"⚠️ Đã gửi yêu cầu cho {final_asin}. (Lưu ý: Không tìm thấy trong Product DB)."
@@ -112,20 +161,22 @@ def request_new_asin(asin_input, note="", force_update=False):
             return True, f"✅ Đã tự động chuyển về ASIN Cha: {final_asin}. Yêu cầu đã được gửi!"
         else:
             return True, f"✅ Đã gửi yêu cầu thành công cho {final_asin}!"
-            
+
     except Exception as e:
         return False, str(e)
 
+
 # --- Sidebar ---
-st.sidebar.title("🕵️ RnD Scout")
+st.sidebar.title("🕵️Market Intelligence")
+st.sidebar.caption(f"Logged in as: **{current_username}**")
+if st.sidebar.button("Logout"):
+    st.session_state["authenticated"] = False
+    st.rerun()
+
 st.sidebar.markdown("---")
 
 # View Mode Selection
-view_mode = st.sidebar.radio(
-    "Select Mode:", 
-    ["🏠 Home Dashboard", "🕵️ AI Detective"],
-    index=0
-)
+view_mode = st.sidebar.radio("Select Mode:", ["🏠 Home Dashboard", "🕵️ AI Detective"], index=0)
 st.sidebar.markdown("---")
 
 # Request Form
@@ -134,7 +185,7 @@ with st.sidebar.expander("➕ Yêu cầu Scrape ASIN Mới"):
         new_asin = st.text_input("Nhập ASIN:", placeholder="B0...")
         req_note = st.text_input("Ghi chú (Note):", placeholder="Tại sao cần scrape con này?")
         force_chk = st.checkbox("Force Update (Nếu đã có data)")
-        
+
         submitted = st.form_submit_button("Gửi Yêu Cầu")
         if submitted:
             if not new_asin or not new_asin.startswith("B0"):
@@ -142,17 +193,26 @@ with st.sidebar.expander("➕ Yêu cầu Scrape ASIN Mới"):
             else:
                 ok, msg = request_new_asin(new_asin.strip(), req_note, force_chk)
                 if ok:
-                    if "⚠️" in msg: st.warning(msg) # Yellow for Unknown/Warning
-                    else: st.success(msg)           # Green for Auto-Correct/Success
-                else: st.warning(msg)               # Yellow for Error/Stop
-    
+                    if "⚠️" in msg:
+                        st.warning(msg)  # Yellow for Unknown/Warning
+                    else:
+                        st.success(msg)  # Green for Auto-Correct/Success
+                else:
+                    st.warning(msg)  # Yellow for Error/Stop
+
     # Show History
     st.caption("🕒 Các yêu cầu gần đây")
     try:
-        hist_df = query_df("SELECT asin, status FROM scrape_queue ORDER BY created_at DESC LIMIT 5")
+        # Only show requests by current user unless Admin? No, keep generic for now or filter
+        # Let's filter by current user for privacy
+        hist_df = query_df(
+            "SELECT asin, status FROM scrape_queue WHERE requested_by = ? ORDER BY created_at DESC LIMIT 5",
+            [current_user_id],
+        )
         if not hist_df.empty:
             st.dataframe(hist_df, use_container_width=True, hide_index=True)
-    except: pass
+    except:
+        pass
 
 st.sidebar.markdown("---")
 
@@ -165,15 +225,16 @@ df_asins = query_df("""
     FROM reviews 
     GROUP BY parent_asin
     ORDER BY review_count DESC, parent_asin ASC
-""")
+"""
+)
 
 if df_asins.empty:
     st.warning("No data found. Please ingest some reviews first.")
 else:
     selected_asin = st.sidebar.selectbox(
-        "Select Competitor (ASIN)", 
-        df_asins['parent_asin'].tolist(),
-        format_func=lambda x: f"{x} (⭐{df_asins[df_asins['parent_asin']==x]['avg_rating'].values[0]})"
+        "Select Competitor (ASIN)",
+        df_asins["parent_asin"].tolist(),
+        format_func=lambda x: f"{x} (⭐{df_asins[df_asins['parent_asin'] == x]['avg_rating'].values[0]})",
     )
 
     # --- Common Data Fetching ---
@@ -189,32 +250,42 @@ else:
             LIMIT 1
         """
         dna = query_df(dna_query, [selected_asin, selected_asin])
-        
+
         # Lay Real-time variations tu Review DB
-        real_vars_count = query_one("SELECT COUNT(DISTINCT child_asin) FROM reviews WHERE parent_asin = ?", [selected_asin])
-        
+        real_vars_count = query_one(
+            "SELECT COUNT(DISTINCT child_asin) FROM reviews WHERE parent_asin = ?", [selected_asin]
+        )
+
         # Header: Product Title
         product_display_title = selected_asin
-        if not dna.empty and dna.iloc[0]['title']:
+        if not dna.empty and dna.iloc[0]["title"]:
             product_display_title = f"{dna.iloc[0]['title'][:100]}..."
 
         # --- MAIN CONTENT ---
         if view_mode == "🏠 Home Dashboard":
             st.title(f"🔍 {product_display_title}")
-            
+
             # 0. Product DNA Card
             if not dna.empty:
                 d = dna.iloc[0]
                 with st.container(border=True):
                     dna_col, var_col = st.columns([4, 1])
                     with dna_col:
-                        st.markdown(f"🧶 **Material:** `{d['material'] or 'N/A'}` | 🏷️ **Brand:** `{d['brand'] or 'N/A'}`")
-                        st.markdown(f"🎨 **Niche:** `{d['main_niche'] or 'N/A'}` | 🎯 **Target:** `{d['gender'] or ''} {d['target_audience'] or 'N/A'}`")
-                        st.markdown(f"📏 **Specs:** `{d['num_pieces'] or d['pack'] or 'N/A'} Pieces` | 📐 **Size:** `{d['size_capacity'] or 'N/A'}` | 🚀 **Line:** `{d['product_line'] or 'N/A'}`")
+                        st.markdown(
+                            f"🧶 **Material:** `{d['material'] or 'N/A'}` | 🏷️ **Brand:** `{d['brand'] or 'N/A'}`"
+                        )
+                        st.markdown(
+                            f"🎨 **Niche:** `{d['main_niche'] or 'N/A'}` | 🎯 **Target:** `{d['gender'] or ''} {d['target_audience'] or 'N/A'}`"
+                        )
+                        st.markdown(
+                            f"📏 **Specs:** `{d['num_pieces'] or d['pack'] or 'N/A'} Pieces` | 📐 **Size:** `{d['size_capacity'] or 'N/A'}` | 🚀 **Line:** `{d['product_line'] or 'N/A'}`"
+                        )
                     with var_col:
                         st.metric("Active Variations", real_vars_count)
             else:
-                st.info(f"🧬 **Product DNA:** Active Variations: **{real_vars_count}** (Metadata not found in RnD sheet)")
+                st.info(
+                    f"🧬 **Product DNA:** Active Variations: **{real_vars_count}** (Metadata not found in RnD sheet)"
+                )
 
             # 1. KPI Cards
             kpi_query = """
@@ -282,13 +353,15 @@ else:
                     df_aspect = query_df(aspect_query, [selected_asin])
                     if not df_aspect.empty:
                         fig_aspect = px.bar(
-                            df_aspect, y='aspect', x=['positive', 'negative'], 
-                            orientation='h', 
+                            df_aspect,
+                            y="aspect",
+                            x=["positive", "negative"],
+                            orientation="h",
                             labels={"value": "Mentions", "variable": "Sentiment"},
-                            color_discrete_map={'positive': '#00CC96', 'negative': '#EF553B'}
+                            color_discrete_map={"positive": "#00CC96", "negative": "#EF553B"},
                         )
                         st.plotly_chart(fig_aspect, use_container_width=True)
-                
+
                 with st.expander("🔍 View Evidence (Quotes)"):
                     ev_query = """
                         SELECT 
@@ -305,12 +378,12 @@ else:
                         ORDER BY rt.sentiment, "Category"
                     """
                     st.dataframe(
-                        query_df(ev_query, [selected_asin]), 
+                        query_df(ev_query, [selected_asin]),
                         use_container_width=True,
                         column_config={
                             "Aspect (Status)": st.column_config.TextColumn("Aspect (Status)"),
-                            "Evidence Quote": st.column_config.TextColumn("Quote", width="large")
-                        }
+                            "Evidence Quote": st.column_config.TextColumn("Quote", width="large"),
+                        },
                     )
             else:
                 st.warning("⚠️ No AI analysis found for this ASIN.")
@@ -319,9 +392,11 @@ else:
 
             # --- COMPETITOR BATTLE SECTION ---
             st.subheader("⚔️ The Arena: Competitor Battle")
-            ai_asins_df = query_df("SELECT DISTINCT parent_asin FROM review_tags WHERE parent_asin != ?", [selected_asin])
-            ai_asins = ai_asins_df['parent_asin'].tolist() if not ai_asins_df.empty else []
-            
+            ai_asins_df = query_df(
+                "SELECT DISTINCT parent_asin FROM review_tags WHERE parent_asin != ?", [selected_asin]
+            )
+            ai_asins = ai_asins_df["parent_asin"].tolist() if not ai_asins_df.empty else []
+
             if ai_asins:
                 challenger_asin = st.selectbox("Select Challenger to Compare:", ai_asins)
                 if challenger_asin:
@@ -351,10 +426,10 @@ else:
                     df_all = query_df(battle_query)
 
                     with battle_row_top_c1:
-                        st.markdown(f"##### ⚔️ Shared Features Face-off")
+                        st.markdown("##### ⚔️ Shared Features Face-off")
                         if not df_all.empty:
-                            aspects_selected = set(df_all[df_all['parent_asin'] == selected_asin]['aspect'])
-                            aspects_challenger = set(df_all[df_all['parent_asin'] == challenger_asin]['aspect'])
+                            aspects_selected = set(df_all[df_all["parent_asin"] == selected_asin]["aspect"])
+                            aspects_challenger = set(df_all[df_all["parent_asin"] == challenger_asin]["aspect"])
                             shared_aspects = sorted(list(aspects_selected.intersection(aspects_challenger)))
                             if shared_aspects:
                                 ITEMS_PER_PAGE = 5
@@ -363,16 +438,28 @@ else:
                                 if total_items > ITEMS_PER_PAGE:
                                     total_pages = (total_items + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
                                     c_page_1, c_page_2 = st.columns([2, 1])
-                                    with c_page_1: st.caption(f"Page {page}/{total_pages}")
-                                    with c_page_2: page = st.number_input("P", 1, total_pages, 1, key="battle_page", label_visibility="collapsed")
+                                    with c_page_1:
+                                        st.caption(f"Page {page}/{total_pages}")
+                                    with c_page_2:
+                                        page = st.number_input(
+                                            "P", 1, total_pages, 1, key="battle_page", label_visibility="collapsed"
+                                        )
                                 start_idx = (page - 1) * ITEMS_PER_PAGE
                                 current_aspects = shared_aspects[start_idx : start_idx + ITEMS_PER_PAGE]
-                                df_shared = df_all[df_all['aspect'].isin(current_aspects)].copy()
-                                df_shared.sort_values(by=['aspect', 'parent_asin'], inplace=True)
+                                df_shared = df_all[df_all["aspect"].isin(current_aspects)].copy()
+                                df_shared.sort_values(by=["aspect", "parent_asin"], inplace=True)
                                 fig_battle = px.bar(
-                                    df_shared, x="pos_pct", y="aspect", color="parent_asin", 
-                                    barmode="group", height=350, text_auto='.0f',
-                                    color_discrete_sequence=['#FF8C00', '#00CC96'] # Orange for main, Teal for challenger
+                                    df_shared,
+                                    x="pos_pct",
+                                    y="aspect",
+                                    color="parent_asin",
+                                    barmode="group",
+                                    height=350,
+                                    text_auto=".0f",
+                                    color_discrete_sequence=[
+                                        "#FF8C00",
+                                        "#00CC96",
+                                    ],  # Orange for main, Teal for challenger
                                 )
                                 st.plotly_chart(fig_battle, use_container_width=True)
                             else:
@@ -381,35 +468,50 @@ else:
                     with battle_row_top_c2:
                         st.markdown("##### ⚠️ Top Weaknesses Comparison")
                         issue_col_a, issue_col_b = st.columns(2)
+
                         def get_top_issues(asin):
-                            q = """SELECT COALESCE(am.standard_aspect, rt.aspect) as aspect, COUNT(*) as cnt FROM review_tags rt LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect WHERE rt.parent_asin = ? AND rt.sentiment = 'Negative' GROUP BY 1 ORDER BY 2 DESC LIMIT 5"""
+                            q = "SELECT COALESCE(am.standard_aspect, rt.aspect) as aspect, COUNT(*) as cnt FROM review_tags rt LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect WHERE rt.parent_asin = ? AND rt.sentiment = 'Negative' GROUP BY 1 ORDER BY 2 DESC LIMIT 5"
                             return query_df(q, [asin])
+
                         df_issue_a = get_top_issues(selected_asin)
                         df_issue_b = get_top_issues(challenger_asin)
                         with issue_col_a:
                             st.caption(f"Issues: {selected_asin}")
                             if not df_issue_a.empty:
-                                for _, row in df_issue_a.iterrows(): st.error(f"{row['aspect']} ({row['cnt']})")
+                                for _, row in df_issue_a.iterrows():
+                                    st.error(f"{row['aspect']} ({row['cnt']})")
                         with issue_col_b:
                             st.caption(f"Issues: {challenger_asin}")
                             if not df_issue_b.empty:
-                                for _, row in df_issue_b.iterrows(): st.error(f"{row['aspect']} ({row['cnt']})")
+                                for _, row in df_issue_b.iterrows():
+                                    st.error(f"{row['aspect']} ({row['cnt']})")
 
             st.markdown("---")
             c1, c2 = st.columns([2, 1])
             with c1:
                 st.subheader("📈 Rating Trend")
-                df_trend = query_df("SELECT DATE_TRUNC('month', review_date) as month, AVG(rating_score) as avg_score FROM reviews WHERE parent_asin = ? GROUP BY 1 ORDER BY 1", [selected_asin])
-                if not df_trend.empty: st.plotly_chart(px.line(df_trend, x='month', y='avg_score', markers=True), use_container_width=True)
+                df_trend = query_df(
+                    "SELECT DATE_TRUNC('month', review_date) as month, AVG(rating_score) as avg_score FROM reviews WHERE parent_asin = ? GROUP BY 1 ORDER BY 1",
+                    [selected_asin],
+                )
+                if not df_trend.empty:
+                    st.plotly_chart(px.line(df_trend, x="month", y="avg_score", markers=True), use_container_width=True)
             with c2:
                 st.subheader("⚠️ Issues Distribution")
-                df_dist = query_df("SELECT rating_score, COUNT(*) as count FROM reviews WHERE parent_asin = ? GROUP BY 1", [selected_asin])
-                if not df_dist.empty: st.plotly_chart(px.pie(df_dist, names='rating_score', values='count', hole=0.4), use_container_width=True)
+                df_dist = query_df(
+                    "SELECT rating_score, COUNT(*) as count FROM reviews WHERE parent_asin = ? GROUP BY 1",
+                    [selected_asin],
+                )
+                if not df_dist.empty:
+                    st.plotly_chart(
+                        px.pie(df_dist, names="rating_score", values="count", hole=0.4), use_container_width=True
+                    )
 
             st.subheader("📝 Latest Reviews (Deep Dive)")
             show_bad_only = st.checkbox("Show Negative Reviews Only (<= 3 stars)")
             base_query = "SELECT review_date, rating_score, title, text, variation_text, is_verified FROM reviews WHERE parent_asin = ?"
-            if show_bad_only: base_query += " AND rating_score <= 3"
+            if show_bad_only:
+                base_query += " AND rating_score <= 3"
             base_query += " ORDER BY review_date DESC LIMIT 50"
             df_reviews = query_df(base_query, [selected_asin])
             st.dataframe(df_reviews, use_container_width=True, hide_index=True)
@@ -418,28 +520,80 @@ else:
             st.header("🕵️ AI Detective")
             with st.container(border=True):
                 col_icon, col_txt = st.columns([1, 6])
-                with col_icon: st.markdown("<h1 style='text-align: center;'>🎯</h1>", unsafe_allow_html=True)
+                with col_icon:
+                    st.markdown("<h1 style='text-align: center;'>🎯</h1>", unsafe_allow_html=True)
                 with col_txt:
-                    st.markdown(f"**Investigating Product:**")
+                    st.markdown("**Investigating Product:**")
                     st.subheader(product_display_title)
                     if not dna.empty:
                         d = dna.iloc[0]
-                        st.markdown(f"**ASIN:** `{selected_asin}` | **Brand:** `{d.get('brand','N/A')}`")
-            
-            try: from scout_app.core.detective import DetectiveAgent
-            except: from core.detective import DetectiveAgent
-            
-            if "detective" not in st.session_state: st.session_state.detective = DetectiveAgent()
-            if "messages" not in st.session_state: st.session_state.messages = []
+                        st.markdown(f"**ASIN:** `{selected_asin}` | **Brand:** `{d.get('brand', 'N/A')}`")
+
+            try:
+                from scout_app.core.detective import DetectiveAgent
+            except:
+                from core.detective import DetectiveAgent
+
+            if "detective" not in st.session_state:
+                st.session_state.detective = DetectiveAgent()
+            if "messages" not in st.session_state:
+                st.session_state.messages = []
             for message in st.session_state.messages:
-                with st.chat_message(message["role"]): st.markdown(message["content"])
-            if prompt := st.chat_input("Ask the Detective..."):
-                st.session_state.messages.append({"role": "user", "content": prompt})
-                with st.chat_message("user"): st.markdown(prompt)
+                with st.chat_message(message["role"]):
+                    st.markdown(message["content"])
+            
+            # --- Quick Prompts (Mớm Lời - 3 Rows) ---
+            quick_prompt = None
+
+            # Row 1: R&D & Strategy
+            st.markdown("##### 🧠 Nghiên cứu & Chiến lược (R&D)")
+            r1_c1, r1_c2, r1_c3, r1_c4 = st.columns(4)
+            if r1_c1.button("🧠 Tâm lý khách", use_container_width=True, help="Tại sao khách mua?"):
+                quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as an Expert Market Analyst.]\nPhân tích các đòn bẩy tâm lý (cảm xúc sâu xa) khiến khách hàng quyết định xuống tiền mua sản phẩm này. Trả lời chi tiết bằng Tiếng Việt."
+            if r1_c2.button("🚧 Rào cản mua", use_container_width=True, help="Tại sao khách chê?"):
+                quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as a Critical Review Analyst.]\nDựa trên review tiêu cực, hãy vạch trần 3 'tử huyệt' khiến khách hàng ngần ngại. Trả lời bằng Tiếng Việt."
+            if r1_c3.button("💡 Ý tưởng SP mới", use_container_width=True, help="Cải tiến V2"):
+                quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as a Product Manager.]\nDựa trên các điểm yếu của đối thủ, hãy đề xuất 3 ý tưởng cải tiến sản phẩm cho phiên bản V2.0. Trả lời bằng Tiếng Việt."
+            if r1_c4.button("👥 Chân dung khách", use_container_width=True, help="Targeting"):
+                quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as a Marketing Strategist.]\nVẽ ra 3 chân dung khách hàng điển hình dựa trên Review. Trả lời bằng Tiếng Việt."
+
+            # Row 2: Execution & Content
+            st.markdown("##### ⚡ Thực thi (Content & Media)")
+            r2_c1, r2_c2, r2_c3, r2_c4 = st.columns(4)
+            if r2_c1.button("🤖 Chế độ Rufus", use_container_width=True, help="Biến hình thành Rufus"):
+                quick_prompt = "Kể từ bây giờ, hãy ĐÓNG VAI **Amazon Rufus**. Phong cách: Khách quan, ngắn gọn, KHÔNG bán hàng. Bắt đầu bằng: 'Xin chào, tôi là Rufus...'. (Tiếng Việt)."
+            if r2_c2.button("✍️ Viết Listing", use_container_width=True, help="Title & Bullets"):
+                quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as a World-Class Amazon Copywriter.]\nHãy dùng tool generate_listing_content để viết bộ Listing tối ưu. Nội dung Tiếng Anh, giải thích chiến lược bằng Tiếng Việt."
+            if r2_c3.button("❓ Tạo Q&A", use_container_width=True, help="15 câu thắc mắc"):
+                quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as a Customer Support Expert.]\nSoạn 10-15 bộ Q&A chuẩn SEO. Nội dung Q&A bằng TIẾNG ANH, tóm tắt chiến lược bằng TIẾNG VIỆT."
+            if r2_c4.button("📸 Media Brief", use_container_width=True, help="Gợi ý Media"):
+                quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as a Creative Director.]\nĐề xuất 5 concepts Ảnh/Video để xử lý nỗi sợ của khách. Trả lời bằng Tiếng Việt."
+
+            # Row 3: Growth & Support
+            st.markdown("##### 🚀 Tăng trưởng & Hỗ trợ")
+            r3_c1, r3_c2, r3_c3, r3_c4 = st.columns(4)
+            if r3_c1.button("⚔️ Soi Đối Thủ", use_container_width=True, help="So sánh với Brand khác"):
+                quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as a Competitive Intelligence Agent.]\nDựa trên review, khách hàng hay so sánh sản phẩm này với những brand/sản phẩm nào khác? Họ mạnh hơn ta ở điểm nào? Trả lời bằng Tiếng Việt."
+            if r3_c2.button("🔥 Roast Sản phẩm", use_container_width=True, help="Bóc phốt cực gắt"):
+                quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as a brutal critic like Gordon Ramsay.]\nHãy 'roast' (bóc phốt) sản phẩm này dựa trên những lời chê tệ nhất. Trả lời bằng Tiếng Việt."
+            if r3_c3.button("💣 Kịch bản Seeding", use_container_width=True, help="Điều hướng dư luận"):
+                quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as a PR Manager.]\nViết 2 kịch bản Seeding: 1. Happy Path (Sản phẩm đang hot). 2. Crisis Path (Xử lý phốt). Trả lời bằng Tiếng Việt giải thích + Tiếng Anh/Việt mẫu."
+            if r3_c4.button("📞 Kịch bản CSKH", use_container_width=True, help="Xử lý khiếu nại song ngữ"):
+                quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as a Senior CS Manager.]\nDựa trên 3 phàn nàn phổ biến nhất, hãy viết 3 mẫu câu trả lời xử lý khiếu nại. Giải thích TIẾNG VIỆT, Văn mẫu TIẾNG ANH."
+
+            if (prompt := st.chat_input("Ask the Detective...")) or quick_prompt:
+                final_prompt = quick_prompt if quick_prompt else prompt
+                st.session_state.messages.append({"role": "user", "content": final_prompt})
+                with st.chat_message("user"):
+                    st.markdown(final_prompt)
                 with st.chat_message("assistant"):
                     with st.spinner("🕵️ Analyzing..."):
-                        response = st.session_state.detective.answer(prompt, default_asin=selected_asin)
+                        response = st.session_state.detective.answer(
+                            final_prompt, default_asin=selected_asin, user_id=current_user_id
+                        )
                         st.markdown(response)
                 st.session_state.messages.append({"role": "assistant", "content": response})
+                if quick_prompt:
+                    st.rerun()
     else:
         st.info("Please select an ASIN from the sidebar to start analysis.")

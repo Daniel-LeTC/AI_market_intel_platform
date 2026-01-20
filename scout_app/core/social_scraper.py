@@ -28,10 +28,9 @@ class SocialScraper:
     ACTOR_META_ADS = "curious_coder/facebook-ads-library-scraper"
 
     # Cost Config (USD per 1000 items)
-    # Feed: Cheap ($0.25 / 1k)
-    # Comments: Cheap ($0.50 / 1k with Apidojo usually, let's keep buffer)
-    COST_TIKTOK_FEED_PER_1K = 0.25  
-    COST_TIKTOK_COMMENTS_PER_1K = 0.75 # Lower than clockworks
+    # Feed: Cheap ($0.30 / 1k)
+    COST_TIKTOK_FEED_PER_1K = 0.30  
+    COST_TIKTOK_COMMENTS_PER_1K = 0.30 # Matching ApiDojo pricing in research
     
     # Facebook is expensive due to anti-bot
     COST_FB_HASHTAG_PER_1K = 2.50
@@ -110,15 +109,16 @@ class SocialScraper:
                 
                 data.append({
                     "platform": "facebook",
-                    "id": item.get("postId") or item.get("id"),
+                    "post_id": str(item.get("postId") or item.get("id")),
                     "keyword": keywords[0],
                     "author": author_name,
                     "text": text_content,
                     "likes": likes,
                     "comments_count": comments,
                     "shares": shares,
+                    "views": 0, # Not available in standard FB hashtag scrape usually
                     "url": post_url, 
-                    "date": item.get("date") or item.get("time") or item.get("timestamp")
+                    "created_at": item.get("date") or item.get("time") or item.get("timestamp")
                 })
             return pd.DataFrame(data)
 
@@ -189,13 +189,16 @@ class SocialScraper:
             dataset_items = self.client.dataset(run["defaultDatasetId"]).list_items().items
             
             data = []
-            for item in dataset_items:
+            for item in items:
                 data.append({
+                    "comment_id": str(item.get("id") or uuid.uuid4()),
                     "post_url": item.get("postUrl"), 
-                    "text": item.get("text"),
+                    "platform": "facebook",
                     "author": item.get("profileName"),
+                    "text": item.get("text"),
                     "likes": item.get("likesCount", 0),
-                    "date": item.get("date"),
+                    "reply_count": 0, # Not available in simple scrape
+                    "created_at": item.get("date"),
                     "sentiment": None
                 })
             return pd.DataFrame(data)
@@ -211,15 +214,16 @@ class SocialScraper:
         for i in range(limit):
             data.append({
                 "platform": "facebook",
-                "id": f"fb_{random.randint(1000,9999)}",
+                "post_id": f"fb_{random.randint(1000,9999)}",
                 "keyword": keyword,
                 "author": f"User {i}",
                 "text": f"Loving this #{keyword} product! Highly recommend.",
                 "likes": random.randint(10, 500),
                 "comments_count": random.randint(0, 50),
                 "shares": random.randint(0, 20),
+                "views": 0,
                 "url": "https://facebook.com/post/123",
-                "date": "2025-01-15"
+                "created_at": "2025-01-15"
             })
         return pd.DataFrame(data)
 
@@ -227,11 +231,14 @@ class SocialScraper:
         data = []
         for _ in range(num_posts * limit):
             data.append({
+                "comment_id": str(uuid.uuid4()),
                 "post_url": "https://facebook.com/post/123",
+                "platform": "facebook",
                 "text": "How much is it?",
                 "author": "Customer A",
                 "likes": 2,
-                "date": "2025-01-16",
+                "reply_count": 0,
+                "created_at": "2025-01-16",
                 "sentiment": None
             })
         return pd.DataFrame(data)
@@ -258,14 +265,16 @@ class SocialScraper:
             dataset_items = self.client.dataset(run["defaultDatasetId"]).list_items().items
             
             data = []
-            for item in dataset_items:
+            for item in items:
                 data.append({
-                    "video_url": item.get("videoWebUrl"),
-                    "text": item.get("text"),
+                    "comment_id": str(item.get("id") or uuid.uuid4()),
+                    "post_url": item.get("videoWebUrl"), # Use videoWebUrl as linking key (not perfect but OK)
+                    "platform": "tiktok",
                     "author": item.get("uniqueId"),
+                    "text": item.get("text"),
                     "likes": item.get("diggCount"),
                     "reply_count": item.get("replyCount"),
-                    "date": datetime.fromtimestamp(item.get("createTime", 0)).strftime("%Y-%m-%d"),
+                    "created_at": datetime.fromtimestamp(item.get("createTime", 0)).strftime("%Y-%m-%d %H:%M:%S"),
                     "sentiment": None
                 })
             return pd.DataFrame(data)
@@ -319,18 +328,18 @@ class SocialScraper:
                 
                 data.append({
                     "platform": "tiktok",
-                    "id": video_id,
+                    "post_id": video_id,
                     "keyword": keywords[0],
                     "author": author_name,
-                    "desc": item.get("title"), # Dry run confirmed 'title' holds the caption
+                    "text": item.get("title"), # Dry run confirmed 'title' holds the caption
                     "views": item.get("views", 0),
                     "likes": item.get("likes", 0),
                     "shares": item.get("shares", 0),
                     "comments_count": item.get("comments", 0),
                     "created_at": item.get("uploadedAtFormatted", "") or item.get("uploadedAt"),
                     "url": f"https://www.tiktok.com/@{author_name}/video/{video_id}", # Constructed URL
-                    "music": item.get("song", {}).get("title"),
-                    "duration": 0 # Not in top level fields
+                    # "music": item.get("song", {}).get("title"), # Removed from DB Schema to simplify
+                    # "duration": 0 
                 })
             
             return pd.DataFrame(data)
@@ -343,12 +352,14 @@ class SocialScraper:
         data = []
         for _ in range(num_vids * limit_per_vid):
             data.append({
-                "video_url": "http://tiktok.com/mock_vid",
+                "comment_id": str(uuid.uuid4()),
+                "post_url": "http://tiktok.com/mock_vid",
+                "platform": "tiktok",
                 "text": "This hack is amazing! Where to buy?",
                 "author": "user_123",
                 "likes": 50,
                 "reply_count": 2,
-                "date": "2025-01-19",
+                "created_at": "2025-01-19",
                 "sentiment": None
             })
         return pd.DataFrame(data)
@@ -408,17 +419,16 @@ class SocialScraper:
             views = random.randint(10000, 5000000)
             data.append({
                 "platform": "tiktok",
-                "id": f"tt_{random.randint(100000,999999)}",
+                "post_id": f"tt_{random.randint(100000,999999)}",
                 "keyword": keyword,
                 "author": f"creator_{random.randint(1,50)}",
-                "desc": f"Check out this #{keyword} trend! #viral",
+                "text": f"Check out this #{keyword} trend! #viral",
                 "views": views,
                 "likes": int(views * 0.1),
                 "shares": int(views * 0.01),
+                "comments_count": random.randint(0, 50),
                 "created_at": datetime.now().strftime("%Y-%m-%d"),
                 "url": "https://tiktok.com",
-                "music": "Trending Sound",
-                "duration": random.randint(15, 60)
             })
         return pd.DataFrame(data)
 
