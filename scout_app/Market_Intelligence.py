@@ -15,7 +15,7 @@ from core.auth import AuthManager
 from core.config import Settings
 
 # --- Config ---
-st.set_page_config(page_title="Market Intelligence", page_icon="🕵️", layout="wide")
+st.set_page_config(page_title="Product Intelligence", page_icon="🕵️", layout="wide")
 
 # --- AUTHENTICATION GATEKEEPER ---
 if "authenticated" not in st.session_state:
@@ -88,14 +88,9 @@ def query_one(sql, params=None):
 
 def request_new_asin(asin_input, note="", force_update=False):
     """
-    Smart Request Handler V2:
-    1. Lookup 'products' table to map Child -> Parent ASIN.
-    2. Check 'reviews' table for existing data (Last Scrape Date).
-    3. Check for Duplicates in Queue.
-    4. Flag Unknown ASINs.
+    Smart Request Handler V2
     """
     db_path = get_db_path()
-
     final_asin = asin_input
     system_note = ""
     is_unknown = False
@@ -167,7 +162,7 @@ def request_new_asin(asin_input, note="", force_update=False):
 
 
 # --- Sidebar ---
-st.sidebar.title("🕵️Market Intelligence")
+st.sidebar.title("🕵️ Product Intelligence")
 st.sidebar.caption(f"Logged in as: **{current_username}**")
 if st.sidebar.button("Logout"):
     st.session_state["authenticated"] = False
@@ -175,21 +170,17 @@ if st.sidebar.button("Logout"):
 
 st.sidebar.markdown("---")
 
-# View Mode Selection
-view_mode = st.sidebar.radio("Select Mode:", ["🏠 Home Dashboard", "🕵️ AI Detective"], index=0)
-st.sidebar.markdown("---")
-
 # Request Form
-with st.sidebar.expander("➕ Yêu cầu Scrape ASIN Mới"):
+with st.sidebar.expander("➕ Request New ASIN"):
     with st.form("req_form"):
-        new_asin = st.text_input("Nhập ASIN:", placeholder="B0...")
-        req_note = st.text_input("Ghi chú (Note):", placeholder="Tại sao cần scrape con này?")
-        force_chk = st.checkbox("Force Update (Nếu đã có data)")
+        new_asin = st.text_input("Enter ASIN:", placeholder="B0...")
+        req_note = st.text_input("Note:", placeholder="Why prioritize this?")
+        force_chk = st.checkbox("Force Update (If exists)")
 
-        submitted = st.form_submit_button("Gửi Yêu Cầu")
+        submitted = st.form_submit_button("Submit Request")
         if submitted:
             if not new_asin or not new_asin.startswith("B0"):
-                st.error("ASIN không hợp lệ (Phải bắt đầu bằng 'B0')")
+                st.error("Invalid ASIN (Must start with 'B0')")
             else:
                 ok, msg = request_new_asin(new_asin.strip(), req_note, force_chk)
                 if ok:
@@ -201,10 +192,8 @@ with st.sidebar.expander("➕ Yêu cầu Scrape ASIN Mới"):
                     st.warning(msg)  # Yellow for Error/Stop
 
     # Show History
-    st.caption("🕒 Các yêu cầu gần đây")
+    st.caption("🕒 Recent Requests")
     try:
-        # Only show requests by current user unless Admin? No, keep generic for now or filter
-        # Let's filter by current user for privacy
         hist_df = query_df(
             "SELECT asin, status FROM scrape_queue WHERE requested_by = ? ORDER BY created_at DESC LIMIT 5",
             [current_user_id],
@@ -216,7 +205,7 @@ with st.sidebar.expander("➕ Yêu cầu Scrape ASIN Mới"):
 
 st.sidebar.markdown("---")
 
-# Load danh sach ASIN
+# Load ASIN List
 df_asins = query_df("""
     SELECT 
         parent_asin, 
@@ -232,62 +221,49 @@ if df_asins.empty:
     st.warning("No data found. Please ingest some reviews first.")
 else:
     selected_asin = st.sidebar.selectbox(
-        "Select Competitor (ASIN)",
+        "Select Product (ASIN)",
         df_asins["parent_asin"].tolist(),
         format_func=lambda x: f"{x} (⭐{df_asins[df_asins['parent_asin'] == x]['avg_rating'].values[0]})",
     )
 
-    # --- Common Data Fetching ---
     if selected_asin:
-        # Lay thong tin DNA dùng chung cho cả 2 view
+        # --- Common Data Fetching ---
         dna_query = """
             SELECT 
                 title, material, main_niche, gender, design_type, 
                 target_audience, size_capacity, product_line, 
-                num_pieces, pack, brand
+                num_pieces, pack, brand, image_url
             FROM products 
             WHERE asin = ? OR parent_asin = ? 
             LIMIT 1
         """
         dna = query_df(dna_query, [selected_asin, selected_asin])
 
-        # Lay Real-time variations tu Review DB
-        real_vars_count = query_one(
-            "SELECT COUNT(DISTINCT child_asin) FROM reviews WHERE parent_asin = ?", [selected_asin]
-        )
-
-        # Header: Product Title
+        # Product Title Header
         product_display_title = selected_asin
-        if not dna.empty and dna.iloc[0]["title"]:
-            product_display_title = f"{dna.iloc[0]['title'][:100]}..."
+        product_brand = "N/A"
+        if not dna.empty:
+            d = dna.iloc[0]
+            product_display_title = d['title'] if d['title'] else selected_asin
+            product_brand = d['brand'] if d['brand'] else "N/A"
 
-        # --- MAIN CONTENT ---
-        if view_mode == "🏠 Home Dashboard":
-            st.title(f"🔍 {product_display_title}")
+        st.title(f"{product_brand} - {product_display_title[:50]}...")
+        if len(product_display_title) > 50:
+            st.caption(product_display_title)
 
-            # 0. Product DNA Card
-            if not dna.empty:
-                d = dna.iloc[0]
-                with st.container(border=True):
-                    dna_col, var_col = st.columns([4, 1])
-                    with dna_col:
-                        st.markdown(
-                            f"🧶 **Material:** `{d['material'] or 'N/A'}` | 🏷️ **Brand:** `{d['brand'] or 'N/A'}`"
-                        )
-                        st.markdown(
-                            f"🎨 **Niche:** `{d['main_niche'] or 'N/A'}` | 🎯 **Target:** `{d['gender'] or ''} {d['target_audience'] or 'N/A'}`"
-                        )
-                        st.markdown(
-                            f"📏 **Specs:** `{d['num_pieces'] or d['pack'] or 'N/A'} Pieces` | 📐 **Size:** `{d['size_capacity'] or 'N/A'}` | 🚀 **Line:** `{d['product_line'] or 'N/A'}`"
-                        )
-                    with var_col:
-                        st.metric("Active Variations", real_vars_count)
-            else:
-                st.info(
-                    f"🧬 **Product DNA:** Active Variations: **{real_vars_count}** (Metadata not found in RnD sheet)"
-                )
+        # --- TABS LAYOUT ---
+        tab_overview, tab_deep, tab_battle, tab_strategy = st.tabs([
+            "🏠 Executive Summary", 
+            "🔬 Customer X-Ray", 
+            "⚔️ Market Showdown", 
+            "🧠 Strategy Hub"
+        ])
 
-            # 1. KPI Cards
+        # =================================================================================
+        # TAB 1: EXECUTIVE SUMMARY
+        # =================================================================================
+        with tab_overview:
+            # 1. KPIs
             kpi_query = """
                 SELECT 
                     COUNT(*) as total_reviews,
@@ -301,22 +277,32 @@ else:
             kpis_df = query_df(kpi_query, [selected_asin])
             if not kpis_df.empty:
                 kpis = kpis_df.iloc[0]
-                col1, col2, col3, col4 = st.columns(4)
-                col1.metric("Total Reviews", f"{kpis['total_reviews']}")
-                col2.metric("Avg Rating", f"{kpis['avg_rating']:.2f} ⭐")
-                col3.metric("Variations", f"{kpis['total_variations']}")
-                col4.metric("Negative Rate", f"{kpis['negative_pct']:.1f}%", delta_color="inverse")
+                c1, c2, c3, c4 = st.columns(4)
+                with c1: st.metric("Total Reviews", f"{kpis['total_reviews']:,}")
+                with c2: st.metric("Average Rating", f"{kpis['avg_rating']:.2f} ⭐") # Renamed
+                with c3: st.metric("Product Variations", f"{kpis['total_variations']}") # Renamed
+                with c4: st.metric("Negative Review %", f"{kpis['negative_pct']:.1f}%", delta_color="inverse") # Renamed
 
             st.markdown("---")
 
-            # --- AI INTELLIGENCE SECTION ---
-            st.subheader("🤖 AI Intelligence (RnD Scout)")
-            tag_count = query_one("SELECT COUNT(*) FROM review_tags WHERE parent_asin = ?", [selected_asin]) or 0
+            # 2. Product DNA & Priority Actions
+            c_dna, c_action = st.columns([1, 1])
+            
+            with c_dna:
+                st.subheader("🧬 Product DNA")
+                with st.container(border=True):
+                    if not dna.empty:
+                        st.markdown(f"**Brand:** `{product_brand}`")
+                        st.markdown(f"**Material:** `{d['material'] or 'N/A'}`")
+                        st.markdown(f"**Niche:** `{d['main_niche'] or 'N/A'}`")
+                        st.markdown(f"**Target:** `{d['gender'] or ''} {d['target_audience'] or 'N/A'}`")
+                        st.markdown(f"**Specs:** `{d['size_capacity'] or 'N/A'}` | `{d['num_pieces'] or d['pack'] or 'N/A'} pcs`")
+                    else:
+                        st.info("Metadata not found in DB.")
 
-            if tag_count > 0:
-                ai_col1, ai_col2 = st.columns([1, 2])
-                with ai_col1:
-                    st.markdown("##### 🚨 Top Pain Points")
+            with c_action:
+                st.subheader("🚨 Priority Actions (Top Pain Points)")
+                with st.container(border=True):
                     pain_query = """
                         SELECT 
                             COALESCE(am.standard_aspect, rt.aspect) as aspect,
@@ -326,81 +312,104 @@ else:
                         WHERE rt.parent_asin = ? AND rt.sentiment = 'Negative'
                         GROUP BY 1
                         ORDER BY 2 DESC
-                        LIMIT 5
+                        LIMIT 3
                     """
                     df_pain = query_df(pain_query, [selected_asin])
                     if not df_pain.empty:
                         for i, row in df_pain.iterrows():
-                            st.error(f"**{row['aspect']}**: {row['count']} complaints")
+                            st.error(f"**Fix '{row['aspect']}'**: {row['count']} complaints detected.")
                     else:
-                        st.success("No major pain points detected yet!")
+                        st.success("✅ No critical pain points detected yet.")
 
-                with ai_col2:
-                    st.markdown("##### 📊 Aspect Sentiment Analysis")
-                    aspect_query = """
-                        SELECT 
-                            COALESCE(am.standard_aspect, rt.aspect) as aspect,
-                            SUM(CASE WHEN rt.sentiment = 'Positive' THEN 1 ELSE 0 END) as positive,
-                            SUM(CASE WHEN rt.sentiment = 'Negative' THEN 1 ELSE 0 END) as negative
-                        FROM review_tags rt
-                        LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect
-                        WHERE rt.parent_asin = ?
-                        GROUP BY 1
-                        HAVING (positive + negative) > 1 
-                        ORDER BY (positive + negative) DESC
-                        LIMIT 10
-                    """
-                    df_aspect = query_df(aspect_query, [selected_asin])
-                    if not df_aspect.empty:
-                        fig_aspect = px.bar(
-                            df_aspect,
-                            y="aspect",
-                            x=["positive", "negative"],
-                            orientation="h",
-                            labels={"value": "Mentions", "variable": "Sentiment"},
-                            color_discrete_map={"positive": "#00CC96", "negative": "#EF553B"},
-                        )
-                        st.plotly_chart(fig_aspect, use_container_width=True)
-
-                with st.expander("🔍 View Evidence (Quotes)"):
-                    ev_query = """
-                        SELECT 
-                            COALESCE(am.category, rt.category) as "Category",
-                            CASE 
-                                WHEN am.standard_aspect IS NOT NULL THEN '✅ ' || am.standard_aspect
-                                ELSE '⏳ ' || rt.aspect 
-                            END as "Aspect (Status)",
-                            rt.sentiment as "Sentiment", 
-                            rt.quote as "Evidence Quote"
-                        FROM review_tags rt
-                        LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect
-                        WHERE rt.parent_asin = ?
-                        ORDER BY rt.sentiment, "Category"
-                    """
-                    st.dataframe(
-                        query_df(ev_query, [selected_asin]),
-                        use_container_width=True,
-                        column_config={
-                            "Aspect (Status)": st.column_config.TextColumn("Aspect (Status)"),
-                            "Evidence Quote": st.column_config.TextColumn("Quote", width="large"),
-                        },
+        # =================================================================================
+        # TAB 2: CUSTOMER X-RAY (DEEP DIVE)
+        # =================================================================================
+        with tab_deep:
+            c1, c2 = st.columns([2, 1])
+            with c1:
+                st.subheader("📊 Aspect Sentiment Analysis")
+                aspect_query = """
+                    SELECT 
+                        COALESCE(am.standard_aspect, rt.aspect) as aspect,
+                        SUM(CASE WHEN rt.sentiment = 'Positive' THEN 1 ELSE 0 END) as positive,
+                        SUM(CASE WHEN rt.sentiment = 'Negative' THEN 1 ELSE 0 END) as negative
+                    FROM review_tags rt
+                    LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect
+                    WHERE rt.parent_asin = ?
+                    GROUP BY 1
+                    HAVING (positive + negative) > 1 
+                    ORDER BY (positive + negative) DESC
+                    LIMIT 10
+                """
+                df_aspect = query_df(aspect_query, [selected_asin])
+                if not df_aspect.empty:
+                    fig_aspect = px.bar(
+                        df_aspect,
+                        y="aspect",
+                        x=["positive", "negative"],
+                        orientation="h",
+                        labels={"value": "Mentions", "variable": "Sentiment"},
+                        color_discrete_map={"positive": "#00CC96", "negative": "#EF553B"},
+                        height=400
                     )
-            else:
-                st.warning("⚠️ No AI analysis found for this ASIN.")
+                    st.plotly_chart(fig_aspect, use_container_width=True)
+                else:
+                    st.info("Not enough data for Aspect Analysis.")
 
+            with c2:
+                st.subheader("⚠️ Issue Distribution")
+                df_dist = query_df(
+                    "SELECT rating_score, COUNT(*) as count FROM reviews WHERE parent_asin = ? GROUP BY 1",
+                    [selected_asin],
+                )
+                if not df_dist.empty:
+                    df_dist["Star Rating"] = df_dist["rating_score"].astype(str) + " Star"
+                    st.plotly_chart(
+                        px.pie(
+                            df_dist, 
+                            names="Star Rating", # Renamed
+                            values="count", 
+                            hole=0.4, 
+                            color_discrete_sequence=px.colors.sequential.RdBu
+                        ), 
+                        use_container_width=True
+                    )
+            
             st.markdown("---")
+            st.subheader("📈 Rating Trend over Time")
+            df_trend = query_df(
+                "SELECT DATE_TRUNC('month', review_date) as month, AVG(rating_score) as avg_score FROM reviews WHERE parent_asin = ? GROUP BY 1 ORDER BY 1",
+                [selected_asin],
+            )
+            if not df_trend.empty:
+                st.plotly_chart(
+                    px.line(
+                        df_trend, 
+                        x="month", 
+                        y="avg_score", 
+                        markers=True,
+                        labels={"avg_score": "Average Rating", "month": "Date"} # Renamed
+                    ), 
+                    use_container_width=True
+                )
 
-            # --- COMPETITOR BATTLE SECTION ---
-            st.subheader("⚔️ The Arena: Competitor Battle")
+        # =================================================================================
+        # TAB 3: MARKET SHOWDOWN
+        # =================================================================================
+        with tab_battle:
+            st.subheader("⚔️ Head-to-Head Comparison")
+            
             ai_asins_df = query_df(
                 "SELECT DISTINCT parent_asin FROM review_tags WHERE parent_asin != ?", [selected_asin]
             )
             ai_asins = ai_asins_df["parent_asin"].tolist() if not ai_asins_df.empty else []
 
             if ai_asins:
-                challenger_asin = st.selectbox("Select Challenger to Compare:", ai_asins)
+                c_sel, c_blank = st.columns([1, 2])
+                with c_sel:
+                    challenger_asin = st.selectbox("Select Challenger:", ai_asins)
+                
                 if challenger_asin:
-                    battle_row_top_c1, battle_row_top_c2 = st.columns(2)
                     battle_query = f"""
                         WITH normalized AS (
                             SELECT 
@@ -425,109 +434,155 @@ else:
                     """
                     df_all = query_df(battle_query)
 
-                    with battle_row_top_c1:
-                        st.markdown("##### ⚔️ Shared Features Face-off")
-                        if not df_all.empty:
-                            aspects_selected = set(df_all[df_all["parent_asin"] == selected_asin]["aspect"])
-                            aspects_challenger = set(df_all[df_all["parent_asin"] == challenger_asin]["aspect"])
-                            shared_aspects = sorted(list(aspects_selected.intersection(aspects_challenger)))
-                            if shared_aspects:
-                                ITEMS_PER_PAGE = 5
-                                total_items = len(shared_aspects)
-                                page = 1
-                                if total_items > ITEMS_PER_PAGE:
-                                    total_pages = (total_items + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
-                                    c_page_1, c_page_2 = st.columns([2, 1])
-                                    with c_page_1:
-                                        st.caption(f"Page {page}/{total_pages}")
-                                    with c_page_2:
-                                        page = st.number_input(
-                                            "P", 1, total_pages, 1, key="battle_page", label_visibility="collapsed"
-                                        )
-                                start_idx = (page - 1) * ITEMS_PER_PAGE
-                                current_aspects = shared_aspects[start_idx : start_idx + ITEMS_PER_PAGE]
-                                df_shared = df_all[df_all["aspect"].isin(current_aspects)].copy()
-                                df_shared.sort_values(by=["aspect", "parent_asin"], inplace=True)
-                                fig_battle = px.bar(
-                                    df_shared,
-                                    x="pos_pct",
-                                    y="aspect",
-                                    color="parent_asin",
-                                    barmode="group",
-                                    height=350,
-                                    text_auto=".0f",
-                                    color_discrete_sequence=[
-                                        "#FF8C00",
-                                        "#00CC96",
-                                    ],  # Orange for main, Teal for challenger
-                                )
-                                st.plotly_chart(fig_battle, use_container_width=True)
-                            else:
-                                st.info("No shared features.")
+                    # --- SECTION 1: SHARED FEATURES ---
+                    st.markdown("#### 🤝 Shared Features Face-off")
+                    if not df_all.empty:
+                        aspects_selected = set(df_all[df_all["parent_asin"] == selected_asin]["aspect"])
+                        aspects_challenger = set(df_all[df_all["parent_asin"] == challenger_asin]["aspect"])
+                        shared_aspects_list = sorted(list(aspects_selected.intersection(aspects_challenger)))
+                        
+                        if shared_aspects_list:
+                            # Pagination Logic for Chart
+                            ITEMS_PER_PAGE = 10
+                            total_items = len(shared_aspects_list)
+                            page = 1
+                            
+                            if total_items > ITEMS_PER_PAGE:
+                                total_pages = (total_items + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
+                                c_pg1, c_pg2 = st.columns([3, 1])
+                                with c_pg1:
+                                    st.caption(f"Showing {total_items} Shared Aspects | Page {page}/{total_pages}")
+                                with c_pg2:
+                                    page = st.number_input("Chart Page", 1, total_pages, 1, key="battle_page")
+                            
+                            start_idx = (page - 1) * ITEMS_PER_PAGE
+                            current_aspects = shared_aspects_list[start_idx : start_idx + ITEMS_PER_PAGE]
+                            
+                            # Filter Data for Chart
+                            df_shared = df_all[df_all["aspect"].isin(current_aspects)].copy()
+                            df_shared.sort_values(by=["aspect", "parent_asin"], inplace=True)
+                            
+                            fig_battle = px.bar(
+                                df_shared,
+                                x="pos_pct",
+                                y="aspect",
+                                color="parent_asin",
+                                barmode="group",
+                                height=400,
+                                text_auto=".0f",
+                                color_discrete_sequence=["#FF8C00", "#00CC96"],
+                                title=f"Sentiment Comparison (Page {page})",
+                                labels={"pos_pct": "Sentiment Score (%)", "aspect": "Feature", "parent_asin": "Product"} # Renamed
+                            )
+                            st.plotly_chart(fig_battle, use_container_width=True)
+                        else:
+                            st.info("No shared features found to compare.")
 
-                    with battle_row_top_c2:
-                        st.markdown("##### ⚠️ Top Weaknesses Comparison")
-                        issue_col_a, issue_col_b = st.columns(2)
+                    st.markdown("---")
 
-                        def get_top_issues(asin):
-                            q = "SELECT COALESCE(am.standard_aspect, rt.aspect) as aspect, COUNT(*) as cnt FROM review_tags rt LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect WHERE rt.parent_asin = ? AND rt.sentiment = 'Negative' GROUP BY 1 ORDER BY 2 DESC LIMIT 5"
-                            return query_df(q, [asin])
+                    # --- SECTION 2: UNIQUE FEATURES ---
+                    st.markdown("#### 💎 Unique/Exclusive Features")
+                    c_uniq1, c_uniq2 = st.columns(2)
+                    
+                    # Logic: Aspects present in A but NOT in B
+                    unique_to_me = list(aspects_selected - aspects_challenger)
+                    unique_to_challenger = list(aspects_challenger - aspects_selected)
 
-                        df_issue_a = get_top_issues(selected_asin)
-                        df_issue_b = get_top_issues(challenger_asin)
-                        with issue_col_a:
-                            st.caption(f"Issues: {selected_asin}")
-                            if not df_issue_a.empty:
-                                for _, row in df_issue_a.iterrows():
-                                    st.error(f"{row['aspect']} ({row['cnt']})")
-                        with issue_col_b:
-                            st.caption(f"Issues: {challenger_asin}")
-                            if not df_issue_b.empty:
-                                for _, row in df_issue_b.iterrows():
-                                    st.error(f"{row['aspect']} ({row['cnt']})")
+                    def render_unique_list(aspects, owner_name, key_prefix):
+                        if not aspects:
+                            st.info("None")
+                            return
+                        
+                        df_uniq = df_all[
+                            (df_all["parent_asin"] == owner_name) & 
+                            (df_all["aspect"].isin(aspects))
+                        ][["aspect", "total_mentions", "pos_pct"]]
 
-            st.markdown("---")
-            c1, c2 = st.columns([2, 1])
-            with c1:
-                st.subheader("📈 Rating Trend")
-                df_trend = query_df(
-                    "SELECT DATE_TRUNC('month', review_date) as month, AVG(rating_score) as avg_score FROM reviews WHERE parent_asin = ? GROUP BY 1 ORDER BY 1",
-                    [selected_asin],
-                )
-                if not df_trend.empty:
-                    st.plotly_chart(px.line(df_trend, x="month", y="avg_score", markers=True), use_container_width=True)
-            with c2:
-                st.subheader("⚠️ Issues Distribution")
-                df_dist = query_df(
-                    "SELECT rating_score, COUNT(*) as count FROM reviews WHERE parent_asin = ? GROUP BY 1",
-                    [selected_asin],
-                )
-                if not df_dist.empty:
-                    st.plotly_chart(
-                        px.pie(df_dist, names="rating_score", values="count", hole=0.4), use_container_width=True
-                    )
+                        # Rename columns for UX
+                        df_uniq.rename(columns={
+                            "aspect": "Unique Feature",
+                            "total_mentions": "Mentions",
+                            "pos_pct": "Sentiment Score (%)"
+                        }, inplace=True)
 
-            st.subheader("📝 Latest Reviews (Deep Dive)")
-            show_bad_only = st.checkbox("Show Negative Reviews Only (<= 3 stars)")
-            base_query = "SELECT review_date, rating_score, title, text, variation_text, is_verified FROM reviews WHERE parent_asin = ?"
-            if show_bad_only:
-                base_query += " AND rating_score <= 3"
-            base_query += " ORDER BY review_date DESC LIMIT 50"
-            df_reviews = query_df(base_query, [selected_asin])
-            st.dataframe(df_reviews, use_container_width=True, hide_index=True)
+                        df_uniq.sort_values("Mentions", ascending=False, inplace=True)
 
-        else:
-            st.header("🕵️ AI Detective")
-            with st.container(border=True):
-                col_icon, col_txt = st.columns([1, 6])
-                with col_icon:
-                    st.markdown("<h1 style='text-align: center;'>🎯</h1>", unsafe_allow_html=True)
-                with col_txt:
-                    st.markdown("**Investigating Product:**")
-                    st.subheader(product_display_title)
-                    if not dna.empty:
-                        d = dna.iloc[0]
-                        st.markdown(f"**ASIN:** `{selected_asin}` | **Brand:** `{d.get('brand', 'N/A')}`")
+                        # Pagination for Dataframe
+                        rows_per_page = 10
+                        total_rows = len(df_uniq)
+                        start_idx = 0
+                        end_idx = rows_per_page
+                        
+                        # Data Slice
+                        pg = 1
+                        if total_rows > rows_per_page:
+                            t_pages = (total_rows + rows_per_page - 1) // rows_per_page
+                            # Render dataframe FIRST, then pagination controls below
+                            start_idx = 0 
+                            # We need to use session state or placeholder if we want controls below to affect table above
+                            # But standard Streamlit flow: Input -> Render.
+                            # So to have Input BELOW Render, we need `st.empty()` placeholder.
+                            
+                            # Placeholder strategy
+                            table_placeholder = st.empty()
+                            
+                            # Pagination Control BELOW
+                            pg = st.number_input(f"Page ({key_prefix})", 1, t_pages, 1, key=f"pg_{key_prefix}")
+                            
+                            start_idx = (pg-1)*rows_per_page
+                            end_idx = pg*rows_per_page
+                            
+                            # Render into placeholder
+                            df_show = df_uniq.iloc[start_idx : end_idx].copy()
+                            df_show["Sentiment Score (%)"] = df_show["Sentiment Score (%)"].map(lambda x: f"{x:.0f}%")
+                            table_placeholder.dataframe(df_show, hide_index=True, use_container_width=True)
+                        else:
+                            # No pagination needed
+                            df_show = df_uniq.copy()
+                            df_show["Sentiment Score (%)"] = df_show["Sentiment Score (%)"].map(lambda x: f"{x:.0f}%")
+                            st.dataframe(df_show, hide_index=True, use_container_width=True)
+
+                    with c_uniq1:
+                        st.subheader(f"Only in {selected_asin}")
+                        render_unique_list(unique_to_me, selected_asin, "me")
+                    
+                    with c_uniq2:
+                        st.subheader(f"Only in {challenger_asin}")
+                        render_unique_list(unique_to_challenger, challenger_asin, "them")
+
+                    st.markdown("---")
+                    
+                    # --- SECTION 3: WEAKNESSES ---
+                    st.markdown("#### 💔 Top Weaknesses Comparison")
+                    cw1, cw2 = st.columns(2)
+                    
+                    def get_top_issues(asin):
+                        q = "SELECT COALESCE(am.standard_aspect, rt.aspect) as aspect, COUNT(*) as cnt FROM review_tags rt LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect WHERE rt.parent_asin = ? AND rt.sentiment = 'Negative' GROUP BY 1 ORDER BY 2 DESC LIMIT 5"
+                        return query_df(q, [asin])
+
+                    with cw1:
+                        st.error(f"Issues: {selected_asin}")
+                        df_iss = get_top_issues(selected_asin)
+                        if not df_iss.empty:
+                            df_iss.rename(columns={"aspect": "Pain Point", "cnt": "Complaints Count"}, inplace=True) # Renamed
+                            st.dataframe(df_iss, hide_index=True, use_container_width=True)
+                    
+                    with cw2:
+                        st.error(f"Issues: {challenger_asin}")
+                        df_iss_c = get_top_issues(challenger_asin)
+                        if not df_iss_c.empty:
+                            df_iss_c.rename(columns={"aspect": "Pain Point", "cnt": "Complaints Count"}, inplace=True) # Renamed
+                            st.dataframe(df_iss_c, hide_index=True, use_container_width=True)
+
+            else:
+                st.warning("No other products found in DB to compare.")
+
+        # =================================================================================
+        # TAB 4: STRATEGY HUB (AI AGENT)
+        # =================================================================================
+        with tab_strategy:
+            st.header("🧠 Strategy Hub")
+            st.caption("Coordinate with your AI Detective to build winning strategies.")
 
             try:
                 from scout_app.core.detective import DetectiveAgent
@@ -538,9 +593,9 @@ else:
                 st.session_state.detective = DetectiveAgent()
             if "messages" not in st.session_state:
                 st.session_state.messages = []
-            for message in st.session_state.messages:
-                with st.chat_message(message["role"]):
-                    st.markdown(message["content"])
+
+            # --- Quick Action Buttons ---
+            st.markdown("##### 🚀 Quick Strategy Actions")
             
             # --- Quick Prompts (Mớm Lời - 3 Rows) ---
             quick_prompt = None
@@ -581,19 +636,42 @@ else:
             if r3_c4.button("📞 Kịch bản CSKH", use_container_width=True, help="Xử lý khiếu nại song ngữ"):
                 quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as a Senior CS Manager.]\nDựa trên 3 phàn nàn phổ biến nhất, hãy viết 3 mẫu câu trả lời xử lý khiếu nại. Giải thích TIẾNG VIỆT, Văn mẫu TIẾNG ANH."
 
-            if (prompt := st.chat_input("Ask the Detective...")) or quick_prompt:
+            if (prompt := st.chat_input("Ask Strategy Hub...")) or quick_prompt:
                 final_prompt = quick_prompt if quick_prompt else prompt
                 st.session_state.messages.append({"role": "user", "content": final_prompt})
                 with st.chat_message("user"):
                     st.markdown(final_prompt)
+                
                 with st.chat_message("assistant"):
-                    with st.spinner("🕵️ Analyzing..."):
+                    with st.spinner("🕵️ Analyzing Market Data..."):
                         response = st.session_state.detective.answer(
                             final_prompt, default_asin=selected_asin, user_id=current_user_id
                         )
                         st.markdown(response)
+                
                 st.session_state.messages.append({"role": "assistant", "content": response})
                 if quick_prompt:
                     st.rerun()
-    else:
-        st.info("Please select an ASIN from the sidebar to start analysis.")
+
+            st.markdown("---")
+            
+            # --- Evidence Locker (Raw Reviews) ---
+            with st.expander("📂 Evidence Locker (Raw Reviews)"):
+                st.caption("Direct access to customer feedback for verification.")
+                show_bad = st.checkbox("Show Negative Only (<= 3 stars)", value=True)
+                
+                ev_sql = "SELECT review_date, rating_score, title, text FROM reviews WHERE parent_asin = ?"
+                if show_bad:
+                    ev_sql += " AND rating_score <= 3"
+                ev_sql += " ORDER BY review_date DESC LIMIT 50"
+                
+                df_ev = query_df(ev_sql, [selected_asin])
+                if not df_ev.empty:
+                    # Rename Columns
+                    df_ev.rename(columns={
+                        "review_date": "Date",
+                        "rating_score": "Stars",
+                        "title": "Title",
+                        "text": "Review Content"
+                    }, inplace=True)
+                st.dataframe(df_ev, use_container_width=True)
