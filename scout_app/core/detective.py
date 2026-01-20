@@ -274,10 +274,10 @@ class DetectiveAgent:
 
     def analyze_customer_context(self, asin: str) -> str:
         targets = {
-            "Kids/Teens": ["daughter", "son", "kid", "child", "teen", "girl", "boy", "granddaughter", "grandson"],
-            "Adults/Self": ["master bedroom", "myself", "husband", "wife", "we"],
-            "Guest": ["guest room", "visitor", "airbnb", "spare room"],
-            "College": ["dorm", "college", "campus", "student"]
+            "End-User: Kids/Teens": ["daughter", "son", "kid", "child", "teen", "girl", "boy", "granddaughter", "grandson"],
+            "End-User: Adults/Self": ["master bedroom", "myself", "husband", "wife", "we"],
+            "End-User: Guest": ["guest room", "visitor", "airbnb", "spare room"],
+            "End-User: College Student": ["dorm", "college", "campus", "student"]
         }
         occasions = {
             "Gift": ["gift", "birthday", "christmas", "present", "xmas"],

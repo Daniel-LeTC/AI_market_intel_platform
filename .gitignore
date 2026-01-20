@@ -36,7 +36,7 @@ scout_app/database/*.duckdb
 *.csv
 *.jsonl
 *.pdf
-# *.png
+*.png
 *.jpg
 *.jpeg
 
