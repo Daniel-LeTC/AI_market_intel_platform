@@ -492,6 +492,7 @@ class DetectiveAgent:
                - If the tool returns specific brands (e.g., Geniospin, Erosebridal), ONLY discuss those.
                - DO NOT mention general brands like Disney, Target, or Walmart unless the tool explicitly lists them.
             4. **EVIDENCE:** Always back up your claims with data provided by the tools (counts, percentages, quotes).
+            5. **NO LOOPING:** If a tool returns "No evidence found" or similar empty results, DO NOT call it again with the same parameters. Admit you cannot find the info and provide a best-effort answer or suggestions.
             """
             
             self.chat_session = self.client.chats.create(
@@ -500,27 +501,49 @@ class DetectiveAgent:
             )
 
         final_response_text = ""
+        previous_tool_calls = [] # Track tool calls to prevent loops
+
         try:
             response = self.chat_session.send_message(user_query)
             max_turns = 10
             for _ in range(max_turns):
                 if response.function_calls:
                     parts = []
+                    current_calls = []
+                    
                     for fc in response.function_calls:
                         fname = fc.name
-                        fargs = fc.args
-                        if fname in tools_map:
-                            result = tools_map[fname](**fargs)
+                        fargs = dict(fc.args) # Convert to dict
+                        
+                        # --- ROBUSTNESS: Auto-inject Default ASIN if missing ---
+                        if default_asin:
+                            if "asin" not in fargs and "asin" in tools_map[fname].__code__.co_varnames: fargs["asin"] = default_asin
+                            if "current_asin" not in fargs and "current_asin" in tools_map[fname].__code__.co_varnames: fargs["current_asin"] = default_asin
+                            if "asin_a" not in fargs and "asin_a" in tools_map[fname].__code__.co_varnames: fargs["asin_a"] = default_asin
+
+                        # --- LOOP DETECTION ---
+                        call_signature = f"{fname}:{json.dumps(fargs, sort_keys=True)}"
+                        if call_signature in previous_tool_calls:
+                            result = "SYSTEM ERROR: You already called this tool with these exact arguments. DO NOT DO IT AGAIN. Stop and answer with what you have."
                         else:
-                            result = "Error: Tool not found"
+                            previous_tool_calls.append(call_signature)
+                            if fname in tools_map:
+                                try:
+                                    result = tools_map[fname](**fargs)
+                                except Exception as tool_err:
+                                    result = f"Tool Execution Error: {tool_err}"
+                            else:
+                                result = "Error: Tool not found"
+                        
                         parts.append(types.Part(function_response=types.FunctionResponse(name=fname, response={"result": result})))
+                    
                     response = self.chat_session.send_message(parts)
                 else:
                     final_response_text = response.text
                     break
             
             if not final_response_text:
-                final_response_text = "Agent got stuck in a loop."
+                final_response_text = "Agent stopped to prevent infinite loop. (Max turns reached)"
 
         except Exception as e:
             self.chat_session = None

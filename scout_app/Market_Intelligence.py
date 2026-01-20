@@ -9,6 +9,8 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+import streamlit.components.v1 as components # Added for JS Injection
+
 # Add root to sys.path to find core
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from core.auth import AuthManager
@@ -252,6 +254,17 @@ else:
             st.caption(product_display_title)
 
         # --- TABS LAYOUT ---
+        # Cleanup Scroll Button Logic (Run on every rerun to clear button if switching tabs)
+        cleanup_js = """
+        <script>
+            var oldBtn = window.parent.document.getElementById('scrollBtn');
+            if (oldBtn) { oldBtn.remove(); }
+            var oldBtnV2 = window.parent.document.getElementById('scrollBtnV2');
+            if (oldBtnV2) { oldBtnV2.remove(); }
+        </script>
+        """
+        components.html(cleanup_js, height=0)
+
         tab_overview, tab_deep, tab_battle, tab_strategy = st.tabs([
             "🏠 Executive Summary", 
             "🔬 Customer X-Ray", 
@@ -371,7 +384,7 @@ else:
                             values="count", 
                             hole=0.4, 
                             color_discrete_sequence=px.colors.sequential.RdBu
-                        ), 
+                        ),
                         use_container_width=True
                     )
             
@@ -389,8 +402,33 @@ else:
                         y="avg_score", 
                         markers=True,
                         labels={"avg_score": "Average Rating", "month": "Date"} # Renamed
-                    ), 
+                    ),
                     use_container_width=True
+                )
+
+            # --- Evidence (Quotes) ---
+            with st.expander("🔍 View Evidence (Quotes)"):
+                ev_query = """
+                    SELECT 
+                        COALESCE(am.category, rt.category) as "Category",
+                        CASE 
+                            WHEN am.standard_aspect IS NOT NULL THEN '✅ ' || am.standard_aspect
+                            ELSE '⏳ ' || rt.aspect 
+                        END as "Aspect (Status)",
+                        rt.sentiment as "Sentiment", 
+                        rt.quote as "Evidence Quote"
+                    FROM review_tags rt
+                    LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect
+                    WHERE rt.parent_asin = ?
+                    ORDER BY rt.sentiment, "Category"
+                """
+                st.dataframe(
+                    query_df(ev_query, [selected_asin]),
+                    use_container_width=True,
+                    column_config={
+                        "Aspect (Status)": st.column_config.TextColumn("Aspect (Status)"),
+                        "Evidence Quote": st.column_config.TextColumn("Quote", width="large"),
+                    },
                 )
 
         # =================================================================================
@@ -499,11 +537,7 @@ else:
                         ][["aspect", "total_mentions", "pos_pct"]]
 
                         # Rename columns for UX
-                        df_uniq.rename(columns={
-                            "aspect": "Unique Feature",
-                            "total_mentions": "Mentions",
-                            "pos_pct": "Sentiment Score (%)"
-                        }, inplace=True)
+                        df_uniq.rename(columns={"aspect": "Unique Feature", "total_mentions": "Mentions", "pos_pct": "Sentiment Score (%)"}, inplace=True)
 
                         df_uniq.sort_values("Mentions", ascending=False, inplace=True)
 
@@ -594,10 +628,34 @@ else:
             if "messages" not in st.session_state:
                 st.session_state.messages = []
 
-            # --- Quick Action Buttons ---
+            # --- 1. Render Chat History (TOP) ---
+            # This ensures that when we rerun, the full history (including new msg) appears first
+            for i, message in enumerate(st.session_state.messages):
+                with st.chat_message(message["role"]):
+                    # Anchor for the latest assistant response
+                    if message["role"] == "assistant" and i == len(st.session_state.messages) - 1:
+                        st.markdown("<div id='latest-answer'></div>", unsafe_allow_html=True)
+                    st.markdown(message["content"])
+
+            # Auto-Scroll JS (Runs on every render)
+            # If 'latest-answer' exists, scroll to it smoothly.
+            auto_scroll_js = """
+            <script>
+                setTimeout(function() {
+                    var target = window.parent.document.getElementById('latest-answer');
+                    if (target) {
+                        target.scrollIntoView({behavior: "smooth", block: "start"});
+                    }
+                }, 300);
+            </script>
+            """
+            components.html(auto_scroll_js, height=0)
+
+            st.markdown("---")
+
+            # --- 2. Quick Action Buttons (MIDDLE) ---
             st.markdown("##### 🚀 Quick Strategy Actions")
             
-            # --- Quick Prompts (Mớm Lời - 3 Rows) ---
             quick_prompt = None
 
             # Row 1: R&D & Strategy
@@ -636,22 +694,29 @@ else:
             if r3_c4.button("📞 Kịch bản CSKH", use_container_width=True, help="Xử lý khiếu nại song ngữ"):
                 quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as a Senior CS Manager.]\nDựa trên 3 phàn nàn phổ biến nhất, hãy viết 3 mẫu câu trả lời xử lý khiếu nại. Giải thích TIẾNG VIỆT, Văn mẫu TIẾNG ANH."
 
-            if (prompt := st.chat_input("Ask Strategy Hub...")) or quick_prompt:
+            st.markdown("---")
+
+            # --- 3. Input Logic (BOTTOM) ---
+            # Disable input if quick_prompt is active (although with rerun this is less critical, but good UX)
+            disable_input = (quick_prompt is not None)
+            
+            if (prompt := st.chat_input("Ask Strategy Hub...", disabled=disable_input)) or quick_prompt:
                 final_prompt = quick_prompt if quick_prompt else prompt
+                
+                # 1. Append User Msg
                 st.session_state.messages.append({"role": "user", "content": final_prompt})
-                with st.chat_message("user"):
-                    st.markdown(final_prompt)
                 
-                with st.chat_message("assistant"):
-                    with st.spinner("🕵️ Analyzing Market Data..."):
-                        response = st.session_state.detective.answer(
-                            final_prompt, default_asin=selected_asin, user_id=current_user_id
-                        )
-                        st.markdown(response)
+                # 2. Generate Answer
+                with st.spinner("🕵️ Analyzing Market Data..."):
+                    response = st.session_state.detective.answer(
+                        final_prompt, default_asin=selected_asin, user_id=current_user_id
+                    )
                 
+                # 3. Append Assistant Msg
                 st.session_state.messages.append({"role": "assistant", "content": response})
-                if quick_prompt:
-                    st.rerun()
+                
+                # 4. RERUN to update UI (New messages will appear at TOP, pushing buttons down)
+                st.rerun()
 
             st.markdown("---")
             
@@ -668,10 +733,5 @@ else:
                 df_ev = query_df(ev_sql, [selected_asin])
                 if not df_ev.empty:
                     # Rename Columns
-                    df_ev.rename(columns={
-                        "review_date": "Date",
-                        "rating_score": "Stars",
-                        "title": "Title",
-                        "text": "Review Content"
-                    }, inplace=True)
+                    df_ev.rename(columns={"review_date": "Date", "rating_score": "Stars", "title": "Title", "text": "Review Content"}, inplace=True)
                 st.dataframe(df_ev, use_container_width=True)
