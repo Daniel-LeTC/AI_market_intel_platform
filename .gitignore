@@ -54,4 +54,15 @@ npm-debug.log*
 .idea/
 
 # --- Adhoc Scripts (Sensitive) ---
-*supermetrics*
+# Supermetrics Adhoc
+spmt/
+scripts/supermetrics_puller.py
+scripts/supermetrics_puller_v2.py
+scripts/run_supermetrics.py
+scripts/pull_ads_daily_loop.py
+scripts/finalize_ads_data.py
+staging_data/amazon_ads_*
+staging_data/supermetrics_export.csv
+reports/amazon_ads_export_*
+reports/FINAL_AMAZON_ADS_JAN_2026.csv
+
