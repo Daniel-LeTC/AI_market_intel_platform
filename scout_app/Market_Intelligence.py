@@ -210,11 +210,10 @@ st.sidebar.markdown("---")
 # Load ASIN List
 df_asins = query_df("""
     SELECT 
-        parent_asin, 
-        COUNT(*) as review_count, 
-        ROUND(AVG(rating_score), 2) as avg_rating
-    FROM reviews 
-    GROUP BY parent_asin
+        asin as parent_asin, 
+        COALESCE(real_total_ratings, 0) as review_count, 
+        COALESCE(real_average_rating, 0.0) as avg_rating
+    FROM products 
     ORDER BY review_count DESC, parent_asin ASC
 """
 )
@@ -304,24 +303,31 @@ else:
         # =================================================================================
         with tab_overview:
             # 1. KPIs
+            # Fetch Metadata directly from Products table
+            # DuckDB JSON extraction: CAST(json_extract(...) AS INT)
             kpi_query = """
                 SELECT 
-                    COUNT(*) as total_reviews,
-                    AVG(rating_score) as avg_rating,
-                    COUNT(DISTINCT child_asin) as total_variations,
-                    SUM(CASE WHEN is_verified = TRUE THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as verified_pct,
-                    SUM(CASE WHEN rating_score <= 2 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as negative_pct
-                FROM reviews
-                WHERE parent_asin = ?
+                    real_total_ratings as total_reviews,
+                    real_average_rating as avg_rating,
+                    variation_count as total_variations,
+                    (
+                        CAST(json_extract(rating_breakdown, '$."1"') AS INT) + 
+                        CAST(json_extract(rating_breakdown, '$."2"') AS INT)
+                    ) as negative_pct
+                FROM products
+                WHERE asin = ?
             """
             kpis_df = query_df(kpi_query, [selected_asin])
             if not kpis_df.empty:
                 kpis = kpis_df.iloc[0]
+                # Fallback if json is null
+                neg_pct = kpis['negative_pct'] if pd.notnull(kpis['negative_pct']) else 0.0
+                
                 c1, c2, c3, c4 = st.columns(4)
-                with c1: st.metric("Total Reviews", f"{kpis['total_reviews']:,}")
-                with c2: st.metric("Average Rating", f"{kpis['avg_rating']:.2f} ⭐") # Renamed
-                with c3: st.metric("Product Variations", f"{kpis['total_variations']}") # Renamed
-                with c4: st.metric("Negative Review %", f"{kpis['negative_pct']:.1f}%", delta_color="inverse") # Renamed
+                with c1: st.metric("Total Ratings (Real)", f"{kpis['total_reviews']:,.0f}")
+                with c2: st.metric("Average Rating (Real)", f"{kpis['avg_rating']:.1f} ⭐")
+                with c3: st.metric("Variations Tracked", f"{kpis['total_variations']}") 
+                with c4: st.metric("Negative Rating %", f"{neg_pct:.0f}%", delta_color="inverse")
 
             st.markdown("---")
 
@@ -397,23 +403,43 @@ else:
                     st.info("Not enough data for Aspect Analysis.")
 
             with c2:
-                st.subheader("⚠️ Issue Distribution")
-                df_dist = query_df(
-                    "SELECT rating_score, COUNT(*) as count FROM reviews WHERE parent_asin = ? GROUP BY 1",
-                    [selected_asin],
-                )
-                if not df_dist.empty:
-                    df_dist["Star Rating"] = df_dist["rating_score"].astype(str) + " Star"
-                    st.plotly_chart(
-                        px.pie(
-                            df_dist, 
-                            names="Star Rating", # Renamed
-                            values="count", 
-                            hole=0.4, 
-                            color_discrete_sequence=px.colors.sequential.RdBu
-                        ),
-                        use_container_width=True
-                    )
+                st.subheader("⚠️ Real Rating Distribution")
+                # Fetch JSON breakdown from Products
+                dist_json = query_one("SELECT rating_breakdown FROM products WHERE asin = ?", [selected_asin])
+                
+                if dist_json:
+                    import json
+                    try:
+                        # Handle DuckDB returning dict or str
+                        if isinstance(dist_json, str):
+                            data = json.loads(dist_json)
+                        else:
+                            data = dist_json # Already dict if DuckDB python client handles JSON type
+                            
+                        # Data: {"5": 70, "4": 10...}
+                        # Ensure keys are sorted 5->1
+                        sorted_keys = sorted(data.keys(), reverse=True)
+                        
+                        df_dist = pd.DataFrame({
+                            "Star Rating": [f"{k} Star" for k in sorted_keys],
+                            "Percentage": [data[k] for k in sorted_keys]
+                        })
+                        
+                        st.plotly_chart(
+                            px.pie(
+                                df_dist, 
+                                names="Star Rating", 
+                                values="Percentage", 
+                                hole=0.4, 
+                                color_discrete_sequence=px.colors.sequential.RdBu_r, # Reversed for 5 star = Blue
+                                title="Market Reality (Population)"
+                            ),
+                            use_container_width=True
+                        )
+                    except Exception as e:
+                        st.warning(f"Could not parse rating distribution: {e}")
+                else:
+                    st.info("No rating breakdown available.")
             
             st.markdown("---")
             st.subheader("📈 Rating Trend over Time")
@@ -475,6 +501,36 @@ else:
                     challenger_asin = st.selectbox("Select Challenger:", ai_asins)
                 
                 if challenger_asin:
+                    # --- 0. TALE OF THE TAPE (REAL STATS) ---
+                    st.markdown("#### 🥊 Tale of the Tape (Market Reality)")
+                    tape_sql = """
+                        SELECT asin, real_average_rating, real_total_ratings 
+                        FROM products WHERE asin IN (?, ?)
+                    """
+                    df_tape = query_df(tape_sql, [selected_asin, challenger_asin])
+                    
+                    if not df_tape.empty:
+                        row_me = df_tape[df_tape['asin'] == selected_asin].iloc[0] if not df_tape[df_tape['asin'] == selected_asin].empty else None
+                        row_them = df_tape[df_tape['asin'] == challenger_asin].iloc[0] if not df_tape[df_tape['asin'] == challenger_asin].empty else None
+                        
+                        c_t1, c_t2, c_t3 = st.columns([1, 0.2, 1])
+                        with c_t1:
+                            st.caption(f"🔵 {selected_asin}")
+                            if row_me is not None:
+                                st.metric("Rating", f"{row_me['real_average_rating']:.1f} ⭐")
+                                st.metric("Total Ratings", f"{row_me['real_total_ratings']:,.0f}")
+                        with c_t2:
+                            st.markdown("<h2 style='text-align: center;'>VS</h2>", unsafe_allow_html=True)
+                        with c_t3:
+                            st.caption(f"🔴 {challenger_asin}")
+                            if row_them is not None:
+                                st.metric("Rating", f"{row_them['real_average_rating']:.1f} ⭐", 
+                                          delta=f"{row_them['real_average_rating'] - (row_me['real_average_rating'] if row_me is not None else 0):.1f}")
+                                st.metric("Total Ratings", f"{row_them['real_total_ratings']:,.0f}",
+                                          delta=f"{row_them['real_total_ratings'] - (row_me['real_total_ratings'] if row_me is not None else 0):,.0f}")
+                    
+                    st.markdown("---")
+
                     battle_query = f"""
                         WITH normalized AS (
                             SELECT 

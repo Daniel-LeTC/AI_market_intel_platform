@@ -52,3 +52,6 @@ npm-debug.log*
 # --- IDEs ---
 .vscode/
 .idea/
+
+# --- Adhoc Scripts (Sensitive) ---
+*supermetrics*

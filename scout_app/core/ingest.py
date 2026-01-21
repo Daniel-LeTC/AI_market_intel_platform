@@ -49,6 +49,9 @@ class DataIngester:
                         num_pieces VARCHAR,
                         pack VARCHAR,
                         variation_count INTEGER,
+                        real_average_rating DOUBLE,
+                        real_total_ratings INTEGER,
+                        rating_breakdown JSON,
                         specs_json JSON,
                         last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
@@ -131,8 +134,57 @@ class DataIngester:
 
     def _ingest_products(self, df: pl.DataFrame, conn):
         df = df.rename({c: c.lower() for c in df.columns})
-        mapping = {"asin": "parent_asin", "producttitle": "title", "productoriginalimage": "image_url", "brand": "brand"}
+        
+        # Mapping for basic product info
+        mapping = {
+            "asin": "parent_asin", 
+            "producttitle": "title", 
+            "productoriginalimage": "image_url", 
+            "brand": "brand",
+            "countratings": "real_total_ratings"
+        }
+        
+        # Advanced Metadata Extraction
         exprs = [pl.col(r).alias(d) for r, d in mapping.items() if r in df.columns]
+        
+        if "productrating" in df.columns:
+            # Extract "4.5" from "4.5 out of 5 stars"
+            exprs.append(
+                pl.col("productrating")
+                .cast(pl.Utf8)
+                .str.extract(r"(\d+\.?\d*)", 1)
+                .cast(pl.Float64)
+                .alias("real_average_rating")
+            )
+
+        # Histogram Extraction (rating_breakdown)
+        hist_cols = {
+            "reviewsummary/fivestar/percentage": "5",
+            "reviewsummary/fourstar/percentage": "4",
+            "reviewsummary/threestar/percentage": "3",
+            "reviewsummary/twostar/percentage": "2",
+            "reviewsummary/onestar/percentage": "1"
+        }
+        
+        # Create a JSON string for rating_breakdown
+        hist_exprs = []
+        for col, star in hist_cols.items():
+            if col in df.columns:
+                hist_exprs.append(pl.format('"{}" : {}', pl.lit(star), pl.col(col).fill_null(0)))
+            else:
+                hist_exprs.append(pl.format('"{}" : 0', pl.lit(star)))
+        
+        if hist_exprs:
+            # Combine into a JSON string: {"5": 70, "4": 10, ...}
+            # Use concat_str to avoid format string escaping issues
+            # We want: { "5": 70, ... }
+            exprs.append(
+                pl.concat_str(
+                    [pl.lit("{"), pl.concat_str(hist_exprs, separator=", "), pl.lit("}")],
+                    separator=""
+                ).alias("rating_breakdown")
+            )
+
         if not exprs: return
         
         p_df = df.select(exprs).unique(subset=["parent_asin"]).with_columns([
@@ -150,16 +202,29 @@ class DataIngester:
             pl.lit(None).alias("specs_json")
         ])
 
-        # Ensure all required columns for INSERT exist
-        for col in ["title", "brand", "image_url"]:
+        # Ensure ALL required columns for INSERT exist
+        required_cols = [
+            "title", "brand", "image_url", 
+            "real_average_rating", "real_total_ratings", "rating_breakdown"
+        ]
+        for col in required_cols:
             if col not in p_df.columns:
+                # Use appropriate type casting if necessary, but DuckDB is lenient with Nulls
                 p_df = p_df.with_columns(pl.lit(None).cast(pl.Utf8).alias(col))
         
         if not p_df.is_empty():
             conn.register("temp_products", p_df.to_arrow())
             conn.execute("""
-                INSERT OR REPLACE INTO products (asin, parent_asin, title, brand, image_url, last_updated)
-                SELECT asin, parent_asin, title, brand, image_url, current_timestamp FROM temp_products
+                INSERT OR REPLACE INTO products (
+                    asin, parent_asin, title, brand, image_url, 
+                    real_average_rating, real_total_ratings, rating_breakdown, 
+                    last_updated
+                )
+                SELECT 
+                    asin, parent_asin, title, brand, image_url, 
+                    real_average_rating, real_total_ratings, CAST(rating_breakdown AS JSON), 
+                    current_timestamp 
+                FROM temp_products
             """)
 
     def ingest_file(self, file_path: Path) -> Dict[str, Any]:
