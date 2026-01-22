@@ -1,11 +1,12 @@
 import streamlit as st
 import pandas as pd
-from scout_app.ui.common import query_df
+from scout_app.ui.common import query_df, get_precalc_stats
 
-def render_overview_tab(selected_asin, product_brand, dna_data, precalc):
+def render_overview_tab(selected_asin, product_brand, dna_data):
     """
     Renders Tab 1: Executive Summary (KPIs, DNA, Pain Points)
     """
+    precalc = get_precalc_stats(selected_asin)
     
     # 1. KPIs
     if precalc and "kpis" in precalc:
@@ -48,12 +49,32 @@ def render_overview_tab(selected_asin, product_brand, dna_data, precalc):
         st.subheader("🧬 Product DNA")
         with st.container(border=True):
             if not dna_data.empty:
-                d = dna_data.iloc[0]
-                st.markdown(f"**Brand:** `{product_brand}`")
-                st.markdown(f"**Material:** `{d['material'] or 'N/A'}`")
-                st.markdown(f"**Niche:** `{d['main_niche'] or 'N/A'}`")
-                st.markdown(f"**Target:** `{d['gender'] or ''} {d['target_audience'] or 'N/A'}`")
-                st.markdown(f"**Specs:** `{d['size_capacity'] or 'N/A'}` | `{d['num_pieces'] or d['pack'] or 'N/A'} pcs`")
+                # Robust metadata extraction: find first non-null value for each field
+                def get_first_valid(col_name):
+                    valid_rows = dna_data[dna_data[col_name].notnull()]
+                    return valid_rows[col_name].iloc[0] if not valid_rows.empty else "N/A"
+
+                brand = get_first_valid('brand') if product_brand == "N/A" else product_brand
+                material = get_first_valid('material')
+                niche = get_first_valid('main_niche')
+                target = f"{get_first_valid('gender') or ''} {get_first_valid('target_audience') or ''}".strip() or "N/A"
+
+                st.markdown(f"**Brand:** `{brand}`")
+                st.markdown(f"**Material:** `{material}`")
+                st.markdown(f"**Niche:** `{niche}`")
+                st.markdown(f"**Target:** `{target}`")
+                
+                # --- Variations Detail ---
+                st.markdown("**Variations Detected:**")
+                df_vars = dna_data[["asin", "size_capacity", "num_pieces", "pack"]].copy()
+                df_vars.columns = ["ASIN", "Size/Capacity", "Pcs", "Pack"]
+                
+                st.dataframe(
+                    df_vars,
+                    height=200,
+                    use_container_width=True,
+                    hide_index=True
+                )
             else:
                 st.info("Metadata not found in DB.")
 

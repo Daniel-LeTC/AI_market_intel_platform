@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 import plotly.express as px
 from scout_app.ui.common import query_df
 
@@ -16,73 +17,64 @@ def render_showdown_tab(selected_asin):
         return
         
     my_row = my_dna.iloc[0]
-    my_niche = my_row.get('main_niche')
-    my_ratings = my_row.get('real_total_ratings', 0) or 0
-    my_line = my_row.get('product_line')
+    my_niche = my_row.get('main_niche') or 'NONE'
+    my_ratings = float(my_row.get('real_total_ratings', 0) or 0)
+    my_line = my_row.get('product_line') or 'NONE'
     
-    # 2. Get Candidates (Only Parent ASINs ideally, or those with reviews)
-    # We filter by those having > 0 reviews to avoid ghost products
-    candidates = query_df("""
-        SELECT asin, title, image_url, real_total_ratings, real_average_rating, main_niche, product_line 
+    # 2. Smart Matchmaking via SQL (Sub-millisecond performance)
+    # Tier 1: Same Niche (3 pts)
+    # Tier 2: Same Line (2 pts)
+    # Tier 3: Same Weight Class (+/- 25% = 3 pts, +/- 50% = 1 pt)
+    
+    match_sql = f"""
+        SELECT 
+            asin, title, image_url, real_total_ratings, real_average_rating, main_niche, product_line,
+            (
+                (CASE WHEN main_niche = ? THEN 3 ELSE 0 END) +
+                (CASE WHEN product_line = ? THEN 2 ELSE 0 END) +
+                (CASE 
+                    WHEN real_total_ratings BETWEEN ? AND ? THEN 3
+                    WHEN real_total_ratings BETWEEN ? AND ? THEN 1
+                    ELSE 0 
+                 END)
+            ) as match_score
         FROM products 
         WHERE asin != ? AND real_total_ratings > 0
-        ORDER BY real_total_ratings DESC
-    """, [selected_asin])
+        ORDER BY match_score DESC, real_total_ratings DESC
+        LIMIT 100
+    """
+    
+    params = [
+        my_niche, my_line, 
+        my_ratings * 0.75, my_ratings * 1.25, # 25% margin
+        my_ratings * 0.5, my_ratings * 1.5,   # 50% margin
+        selected_asin
+    ]
+    
+    candidates = query_df(match_sql, params)
     
     if candidates.empty:
         st.warning("No competitors found in database.")
         return
 
-    # 3. Smart Matching Logic
-    smart_picks = []
-    others = []
-    
-    # Tolerances
-    rating_margin = 0.25 # +/- 25% ratings
-    
-    for _, row in candidates.iterrows():
-        score = 0
-        reasons = []
-        
-        # Criteria 1: Niche Match (High Priority)
-        if my_niche and row['main_niche'] == my_niche:
-            score += 3
-            reasons.append("Same Niche")
-            
-        # Criteria 2: Product Line Match
-        if my_line and row['product_line'] == my_line:
-            score += 2
-            reasons.append("Same Line")
-            
-        # Criteria 3: Rating Count "Weight Class"
-        c_ratings = row['real_total_ratings']
-        if my_ratings > 0:
-            ratio = c_ratings / my_ratings
-            if 0.75 <= ratio <= 1.25: # Within 25% margin
-                score += 3
-                reasons.append("Similar Volume")
-            elif 0.5 <= ratio <= 1.5: # Within 50% margin
-                score += 1
-        
-        item = {
-            "label": f"{row['asin']} - {row['title'][:40]}... (⭐{row['real_average_rating']:.1f} | {int(c_ratings)} revs)",
-            "asin": row['asin'],
-            "score": score,
-            "reasons": ", ".join(reasons),
-            "meta": row.to_dict() # Convert Series to Dict to avoid ambiguity error
-        }
-        
-        if score >= 3: # Threshold for Smart Pick
-            smart_picks.append(item)
-        else:
-            others.append(item)
-            
-    # Sort Smart Picks by Score
-    smart_picks.sort(key=lambda x: x['score'], reverse=True)
+    # 3. Categorize Results
+    smart_df = candidates[candidates['match_score'] >= 3].copy()
+    others_df = candidates[candidates['match_score'] < 3].copy()
+
+    def build_options(df):
+        opts = []
+        for _, row in df.iterrows():
+            opts.append({
+                "label": f"{row['asin']} - {row['title'][:40]}... (⭐{row['real_average_rating']:.1f} | {int(row['real_total_ratings'])} revs)",
+                "asin": row['asin']
+            })
+        return opts
+
+    smart_picks = build_options(smart_df)
+    others = build_options(others_df)
     
     # 4. Render Selection UI
     challenger_asin = None
-    
     c_smart, c_manual = st.tabs(["🤖 Smart Picks (Recommended)", "🔍 Manual Search"])
     
     with c_smart:
@@ -92,7 +84,7 @@ def render_showdown_tab(selected_asin):
             choice = st.radio(
                 "Select a Smart Match:",
                 options=smart_picks,
-                format_func=lambda x: f"[{'🔥' if x['score']>=5 else '✨'}] {x['label']}  —  Matches: {x['reasons']}",
+                format_func=lambda x: f"✨ {x['label']}",
                 key=f"smart_sel_{selected_asin}"
             )
             if choice:
@@ -150,147 +142,96 @@ def render_showdown_tab(selected_asin):
         
         st.markdown("---")
 
-        battle_query = f"""
-            WITH normalized AS (
-                SELECT 
-                    rt.parent_asin,
-                    rt.sentiment,
-                    COALESCE(am.standard_aspect, rt.aspect) as aspect_norm
-                FROM review_tags rt
-                LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect
-                WHERE rt.parent_asin IN ('{selected_asin}', '{challenger_asin}')
-            ),
-            stats AS (
-                SELECT 
-                    parent_asin,
-                    aspect_norm as aspect,
-                    COUNT(*) as total_mentions,
-                    SUM(CASE WHEN sentiment = 'Positive' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as pos_pct
-                FROM normalized
-                GROUP BY 1, 2
-                HAVING total_mentions > 1
-            )
-            SELECT * FROM stats ORDER BY pos_pct DESC
-        """
-        df_all = query_df(battle_query)
-
-        # --- SECTION 1: SHARED FEATURES ---
-        st.markdown("#### 🤝 Shared Features Face-off")
-        if not df_all.empty:
-            aspects_selected = set(df_all[df_all["parent_asin"] == selected_asin]["aspect"])
-            aspects_challenger = set(df_all[df_all["parent_asin"] == challenger_asin]["aspect"])
-            shared_aspects_list = sorted(list(aspects_selected.intersection(aspects_challenger)))
-            
-            if shared_aspects_list:
-                # Pagination Logic for Chart
-                ITEMS_PER_PAGE = 10
-                total_items = len(shared_aspects_list)
-                page = 1
-                
-                if total_items > ITEMS_PER_PAGE:
-                    total_pages = (total_items + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
-                    c_pg1, c_pg2 = st.columns([3, 1])
-                    with c_pg1:
-                        st.caption(f"Showing {total_items} Shared Aspects | Page {page}/{total_pages}")
-                    with c_pg2:
-                        page = st.number_input(
-                            "Chart Page", 
-                            1, 
-                            total_pages, 
-                            1, 
-                            key=f"battle_page_{selected_asin}_{challenger_asin}"
-                        )
-                
-                start_idx = (page - 1) * ITEMS_PER_PAGE
-                current_aspects = shared_aspects_list[start_idx : start_idx + ITEMS_PER_PAGE]
-                
-                # Filter Data for Chart
-                df_shared = df_all[df_all["aspect"].isin(current_aspects)].copy()
-                df_shared.sort_values(by=["aspect", "parent_asin"], inplace=True)
-                
-                # Dynamic Height
-                chart_height = max(400, len(current_aspects) * 50)
-
-                fig_battle = px.bar(
-                    df_shared,
-                    x="pos_pct",
-                    y="aspect",
-                    color="parent_asin",
-                    barmode="group",
-                    height=chart_height,
-                    text_auto=".0f",
-                    color_discrete_sequence=["#FF8C00", "#00CC96"],
-                    title=f"Sentiment Comparison (Page {page})",
-                    labels={"pos_pct": "Sentiment Score (%)", "aspect": "Feature", "parent_asin": "Product"} # Renamed
-                )
-                st.plotly_chart(fig_battle, use_container_width=True)
-            else:
-                st.info("No shared features found to compare.")
-
-        st.markdown("---")
-
-        # --- SECTION 2: UNIQUE FEATURES ---
-        st.markdown("#### 💎 Unique/Exclusive Features")
-        c_uniq1, c_uniq2 = st.columns(2)
+        # --- SECTION 1: SHARED FEATURES (WEIGHTED %) ---
+        from scout_app.ui.common import get_precalc_stats
         
-        # Logic: Aspects present in A but NOT in B
-        unique_to_me = list(aspects_selected - aspects_challenger) if not df_all.empty else []
-        unique_to_challenger = list(aspects_challenger - aspects_selected) if not df_all.empty else []
-
-        def render_unique_list(aspects, owner_name, key_prefix):
-            if not aspects:
-                st.info("None")
-                return
-            
-            df_uniq = df_all[
-                (df_all["parent_asin"] == owner_name) & 
-                (df_all["aspect"].isin(aspects))
-            ][["aspect", "total_mentions", "pos_pct"]]
-
-            # Rename columns for UX
-            df_uniq.rename(columns={"aspect": "Unique Feature", "total_mentions": "Mentions", "pos_pct": "Sentiment Score (%)"}, inplace=True)
-
-            df_uniq.sort_values("Mentions", ascending=False, inplace=True)
-
-            # Pagination for Dataframe
-            rows_per_page = 10
-            total_rows = len(df_uniq)
-            start_idx = 0
-            end_idx = rows_per_page
-            
-            # Data Slice
-            pg = 1
-            if total_rows > rows_per_page:
-                t_pages = (total_rows + rows_per_page - 1) // rows_per_page
-                # Render dataframe FIRST, then pagination controls below
-                start_idx = 0 
-                
-                # Placeholder strategy
-                table_placeholder = st.empty()
-                
-                # Pagination Control BELOW
-                pg = st.number_input(f"Page ({key_prefix})", 1, t_pages, 1, key=f"pg_{key_prefix}_{selected_asin}")
-                
-                start_idx = (pg-1)*rows_per_page
-                end_idx = pg*rows_per_page
-                
-                # Render into placeholder
-                df_show = df_uniq.iloc[start_idx : end_idx].copy()
-                df_show["Sentiment Score (%)"] = df_show["Sentiment Score (%)"].map(lambda x: f"{x:.0f}%")
-                table_placeholder.dataframe(df_show, hide_index=True, use_container_width=True)
-            else:
-                # No pagination needed
-                df_show = df_uniq.copy()
-                df_show["Sentiment Score (%)"] = df_show["Sentiment Score (%)"].map(lambda x: f"{x:.0f}%")
-                st.dataframe(df_show, hide_index=True, use_container_width=True)
-
-        with c_uniq1:
-            st.subheader(f"Only in {selected_asin}")
-            render_unique_list(unique_to_me, selected_asin, "me")
+        st.markdown("#### 🤝 Shared Features Face-off (Weighted Satisfaction)")
         
-        with c_uniq2:
-            st.subheader(f"Only in {challenger_asin}")
-            render_unique_list(unique_to_challenger, challenger_asin, "them")
+        stats_me = get_precalc_stats(selected_asin)
+        stats_them = get_precalc_stats(challenger_asin)
+        
+        if stats_me and stats_them:
+            # Prepare DataFrames
+            df_me_raw = pd.DataFrame(stats_me.get("sentiment_weighted", []))
+            df_them_raw = pd.DataFrame(stats_them.get("sentiment_weighted", []))
+            
+            if not df_me_raw.empty and not df_them_raw.empty:
+                # Calculate Weighted % Positive
+                # Weighted % = est_positive / (est_positive + est_negative)
+                df_me_raw["pos_pct"] = (df_me_raw["est_positive"] / (df_me_raw["est_positive"] + df_me_raw["est_negative"] + 1e-9)) * 100
+                df_them_raw["pos_pct"] = (df_them_raw["est_positive"] / (df_them_raw["est_positive"] + df_them_raw["est_negative"] + 1e-9)) * 100
+                
+                # Filter cols and rename
+                df_me = df_me_raw[["aspect", "pos_pct"]].rename(columns={"pos_pct": f"Me ({selected_asin})"})
+                df_them = df_them_raw[["aspect", "pos_pct"]].rename(columns={"pos_pct": f"Them ({challenger_asin})"})
+                
+                df_battle = pd.merge(df_me, df_them, on="aspect", how="inner")
+                
+                if not df_battle.empty:
+                    df_plot = df_battle.melt(id_vars="aspect", var_name="Product", value_name="Positive %")
+                    
+                    chart_height = max(400, len(df_battle) * 40)
+                    fig_battle = px.bar(
+                        df_plot,
+                        x="Positive %",
+                        y="aspect",
+                        color="Product",
+                        barmode="group",
+                        height=chart_height,
+                        text_auto=".0f",
+                        color_discrete_sequence=["#00CC96", "#FF8C00"],
+                        title="Hài lòng ước tính: Bạn vs. Đối thủ (%)",
+                        labels={"Positive %": "Hài lòng (%)", "aspect": "Khía cạnh"}
+                    )
+                    st.plotly_chart(fig_battle, use_container_width=True)
+                    st.caption("ℹ️ **Giải thích:** Tỷ lệ hài lòng được chuẩn hóa dựa trên phân bổ sao thực tế của cả 2 sản phẩm.")
+
+                    st.markdown("---")
+
+                    # --- SECTION 2: UNIQUE FEATURES ---
+                    st.markdown("#### 💎 Unique/Exclusive Features")
+                    c_uniq1, c_uniq2 = st.columns(2)
+                    
+                    aspects_me = set(df_me_raw["aspect"])
+                    aspects_them = set(df_them_raw["aspect"])
+                    
+                    unique_me_list = list(aspects_me - aspects_them)
+                    unique_them_list = list(aspects_them - aspects_me)
+
+                    def render_unique_table(asin, aspect_list, df_source, key_prefix):
+                        if not aspect_list:
+                            st.info("No unique features detected.")
+                            return
+                        
+                        df_u = df_source[df_source["aspect"].isin(aspect_list)].copy()
+                        df_u["Satisfaction"] = (df_u["est_positive"] / (df_u["est_positive"] + df_u["est_negative"] + 1e-9) * 100).map(lambda x: f"{x:.0f}%")
+                        
+                        # Pagination if too many unique features
+                        rows_per_page = 10
+                        if len(df_u) > rows_per_page:
+                            t_pages = (len(df_u) + rows_per_page - 1) // rows_per_page
+                            pg = st.number_input(f"Page ({key_prefix})", 1, t_pages, 1, key=f"pg_u_{key_prefix}_{selected_asin}")
+                            start = (pg-1)*rows_per_page
+                            df_show = df_u.iloc[start : start+rows_per_page]
+                        else:
+                            df_show = df_u
+
+                        st.dataframe(df_show[["aspect", "Satisfaction"]].rename(columns={"aspect": "Unique Feature"}), hide_index=True, use_container_width=True)
+
+                    with c_uniq1:
+                        st.subheader(f"Only in {selected_asin}")
+                        render_unique_table(selected_asin, unique_me_list, df_me_raw, "me")
+                    
+                    with c_uniq2:
+                        st.subheader(f"Only in {challenger_asin}")
+                        render_unique_table(challenger_asin, unique_them_list, df_them_raw, "them")
+
+                else:
+                    st.info("No shared features found in analysis data.")
+            else:
+                st.warning("Insufficient data for detailed comparison.")
+        else:
+            st.info("Stats not yet fully calculated for both products.")
 
         st.markdown("---")
         
@@ -298,23 +239,24 @@ def render_showdown_tab(selected_asin):
         st.markdown("#### 💔 Top Weaknesses Comparison")
         cw1, cw2 = st.columns(2)
         
-        def get_top_issues(asin):
-            q = "SELECT COALESCE(am.standard_aspect, rt.aspect) as aspect, COUNT(*) as cnt FROM review_tags rt LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect WHERE rt.parent_asin = ? AND rt.sentiment = 'Negative' GROUP BY 1 ORDER BY 2 DESC LIMIT 5"
-            return query_df(q, [asin])
+        def render_top_weakness(df_source, title):
+            if df_source.empty:
+                st.info("No data available.")
+                return
+            # Filter for negative impact aspects and sort by magnitude
+            df_w_list = df_source[df_source["net_impact"] < 0].sort_values("est_negative", ascending=False).head(5)
+            if not df_w_list.empty:
+                st.dataframe(df_w_list[["aspect", "est_negative"]].rename(columns={"aspect": "Pain Point", "est_negative": "Est. Complaints"}), hide_index=True, use_container_width=True)
+            else:
+                st.success("No major weaknesses detected.")
 
         with cw1:
             st.error(f"Issues: {selected_asin}")
-            df_iss = get_top_issues(selected_asin)
-            if not df_iss.empty:
-                df_iss.rename(columns={"aspect": "Pain Point", "cnt": "Complaints Count"}, inplace=True) # Renamed
-                st.dataframe(df_iss, hide_index=True, use_container_width=True)
+            render_top_weakness(df_me_raw if 'df_me_raw' in locals() else pd.DataFrame(), selected_asin)
         
         with cw2:
             st.error(f"Issues: {challenger_asin}")
-            df_iss_c = get_top_issues(challenger_asin)
-            if not df_iss_c.empty:
-                df_iss_c.rename(columns={"aspect": "Pain Point", "cnt": "Complaints Count"}, inplace=True) # Renamed
-                st.dataframe(df_iss_c, hide_index=True, use_container_width=True)
+            render_top_weakness(df_them_raw if 'df_them_raw' in locals() else pd.DataFrame(), challenger_asin)
 
     else:
         st.warning("No other products found in DB to compare.")

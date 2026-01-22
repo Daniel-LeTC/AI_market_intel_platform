@@ -136,6 +136,7 @@ def get_asin_list():
             COALESCE(real_total_ratings, 0) as review_count, 
             COALESCE(real_average_rating, 0.0) as avg_rating
         FROM products 
+        WHERE asin = parent_asin
         ORDER BY review_count DESC, parent_asin ASC
     """)
 
@@ -177,12 +178,15 @@ else:
         # --- Common Data Fetching ---
         dna_query = """
             SELECT 
-                title, material, main_niche, gender, design_type, 
+                asin, title, material, main_niche, gender, design_type, 
                 target_audience, size_capacity, product_line, 
-                num_pieces, pack, brand, image_url
+                num_pieces, pack, brand, image_url, parent_asin
             FROM products 
             WHERE asin = ? OR parent_asin = ? 
-            LIMIT 1
+            ORDER BY 
+                (brand IS NOT NULL) DESC,
+                (title IS NOT NULL) DESC,
+                (asin = parent_asin) DESC
         """
         dna = query_df(dna_query, [selected_asin, selected_asin])
 
@@ -197,9 +201,6 @@ else:
         st.title(f"{product_brand} - {product_display_title[:50]}...")
         if len(product_display_title) > 50:
             st.caption(product_display_title)
-
-        # --- PRE-CALCULATED STATS (FETCH ONCE) ---
-        precalc = get_precalc_stats(selected_asin)
 
         # --- TABS LAYOUT ---
         cleanup_js = """
@@ -220,10 +221,10 @@ else:
         ])
 
         with tab_overview:
-            render_overview_tab(selected_asin, product_brand, dna, precalc)
-        
+            render_overview_tab(selected_asin, product_brand, dna)
+
         with tab_deep:
-            render_xray_tab(selected_asin, precalc)
+            render_xray_tab(selected_asin)
 
         with tab_battle:
             render_showdown_tab(selected_asin)

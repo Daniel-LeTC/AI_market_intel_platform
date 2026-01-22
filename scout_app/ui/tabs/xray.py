@@ -1,14 +1,15 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from scout_app.ui.common import query_df, query_one, get_weighted_sentiment_data, get_raw_sentiment_data, get_evidence_data, time_it
+from scout_app.ui.common import query_df, query_one, get_weighted_sentiment_data, get_raw_sentiment_data, get_evidence_data, time_it, get_precalc_stats
 
 @st.fragment
 @time_it
-def render_xray_tab(selected_asin, precalc):
+def render_xray_tab(selected_asin):
     """
     Renders Tab 2: Customer X-Ray (Sentiment, Ratings, Evidence)
     """
+    precalc = get_precalc_stats(selected_asin)
     c1, c2 = st.columns([2, 1])
     with c1:
         st.subheader("📊 Aspect Sentiment Analysis")
