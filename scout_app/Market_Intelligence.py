@@ -87,15 +87,20 @@ with st.sidebar.expander("➕ Request New ASIN"):
 
     # Show History
     st.caption("🕒 Recent Requests")
-    try:
-        hist_df = query_df(
-            "SELECT asin, status FROM scrape_queue WHERE requested_by = ? ORDER BY created_at DESC LIMIT 5",
-            [current_user_id],
-        )
-        if not hist_df.empty:
-            st.dataframe(hist_df, use_container_width=True, hide_index=True)
-    except:
-        pass
+    
+    @st.cache_data(ttl=30)
+    def get_recent_requests(uid):
+        try:
+            return query_df(
+                "SELECT asin, status FROM scrape_queue WHERE requested_by = ? ORDER BY created_at DESC LIMIT 5",
+                [uid],
+            )
+        except:
+            return pd.DataFrame()
+
+    hist_df = get_recent_requests(current_user_id)
+    if not hist_df.empty:
+        st.dataframe(hist_df, use_container_width=True, hide_index=True)
 
 st.sidebar.markdown("---")
 

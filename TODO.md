@@ -1,22 +1,19 @@
-# 📋 Technical TODO: Pre-calculation & Refactoring
+# 📝 Tactical Plan (TODO)
 
-**Goal:** High Performance & Maintainable Codebase.
+## Phase 1: Pre-calculation Architecture 🚀 [DONE]
+- [x] Create `product_stats` table in DuckDB.
+- [x] Implement `StatsEngine` (Sentiment, KPIs, Trends).
+- [x] Integrate into `DataIngester` pipeline.
+- [x] Run backfill script.
 
-## ✅ Phase 1-4: Pre-calculation Architecture (Completed)
-- [x] Schema `product_stats` created.
-- [x] `StatsEngine` implemented.
-- [x] Ingest Integration done.
-- [x] Backfill completed.
+## Phase 2: UI Modularization & Performance 🛠️ [DONE]
+- [x] Split monolithic UI into `scout_app/ui/tabs/`.
+- [x] **PERFORMANCE VICTORY:** Implement `@st.fragment` for isolated re-runs.
+- [x] Cache heavy DB queries (`get_precalc_stats`).
+- [x] Fix Showdown Logic (Competitor selection bug).
+- [x] Fix Strategy Hub UX (Disable input while thinking).
 
-## ✅ Phase 5: UI Refactor & Optimization (Completed)
-- [x] **Fix Concurrency:** Updated `scripts/backfill_stats_v1.py` to use Blue-Green deployment.
-- [x] **Split Monolithic UI:**
-    - [x] Created `scout_app/ui/common.py`.
-    - [x] Created `scout_app/ui/tabs/overview.py`.
-    - [x] Created `scout_app/ui/tabs/xray.py`.
-    - [x] Created `scout_app/ui/tabs/showdown.py`.
-    - [x] Created `scout_app/ui/tabs/strategy.py`.
-    - [x] Refactored `Market_Intelligence.py`.
-
-## ✅ Phase 6: Clean Up (Completed)
-- [x] Removed legacy SQL queries from `Market_Intelligence.py` (via refactor).
+## Phase 3: Social Scout AI (Next) 🛰️ [TODO]
+- [ ] Implement Trend Bridge (Keyword matching).
+- [ ] Sentiment X-Ray (Visual drill-down).
+- [ ] UI Integration in `05_Social_Scout.py`.

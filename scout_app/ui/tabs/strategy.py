@@ -1,6 +1,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
 
+@st.fragment
 def render_strategy_tab(selected_asin, current_user_id):
     """
     Renders Tab 4: Strategy Hub (AI Agent)
@@ -90,23 +91,59 @@ def render_strategy_tab(selected_asin, current_user_id):
     st.markdown("---")
 
     # --- 3. Input Logic (BOTTOM) ---
-    # Disable input if quick_prompt is active (although with rerun this is less critical, but good UX)
-    disable_input = (quick_prompt is not None)
+    if "agent_processing" not in st.session_state:
+        st.session_state.agent_processing = False
     
-    if (prompt := st.chat_input("Ask Strategy Hub...", disabled=disable_input)) or quick_prompt:
-        final_prompt = quick_prompt if quick_prompt else prompt
+    # Check for pending prompt from previous run (Quick Action or Chat Input)
+    if "pending_prompt" not in st.session_state:
+        st.session_state.pending_prompt = None
+
+    # HANDLE QUICK BUTTONS (Set pending prompt & rerun)
+    if quick_prompt:
+        st.session_state.pending_prompt = quick_prompt
+        st.session_state.agent_processing = True
+        st.rerun()
+
+    # HANDLE CHAT INPUT
+    # Disable if processing OR if we just set a pending prompt
+    should_disable = st.session_state.agent_processing or (st.session_state.pending_prompt is not None)
+    
+    if prompt := st.chat_input("Ask Strategy Hub...", disabled=should_disable):
+        st.session_state.pending_prompt = prompt
+        st.session_state.agent_processing = True
+        st.rerun()
+
+    # --- PROCESS LOGIC (Run on Rerun) ---
+    if st.session_state.agent_processing and st.session_state.pending_prompt:
+        final_prompt = st.session_state.pending_prompt
         
-        # 1. Append User Msg
-        st.session_state.messages.append({"role": "user", "content": final_prompt})
+        # 1. Append User Msg (Visual Feedback)
+        # Check if already appended to avoid duplicates on reruns (though logic should prevent this)
+        if not st.session_state.messages or st.session_state.messages[-1]["content"] != final_prompt:
+             st.session_state.messages.append({"role": "user", "content": final_prompt})
+             # Force redraw history? No, wait for next rerun or manual draw?
+             # Actually, since we are at bottom, history is at top. 
+             # We need to rerun to show user msg at top? 
+             # No, let's run logic then show result. User msg will appear next time.
         
         # 2. Generate Answer
-        with st.spinner("🕵️ Analyzing Market Data..."):
-            response = st.session_state.detective.answer(
-                final_prompt, default_asin=selected_asin, user_id=current_user_id
-            )
+        try:
+            with st.spinner("🕵️ Detective is thinking... (Do not close tab)"):
+                from streamlit.runtime.scriptrunner import add_script_run_ctx
+                # Streamlit callback needs context if using LangChain's StreamlitCallbackHandler
+                # But here we use simple answer() method.
+                response = st.session_state.detective.answer(
+                    final_prompt, default_asin=selected_asin, user_id=current_user_id
+                )
+            
+            # 3. Append Assistant Msg
+            st.session_state.messages.append({"role": "assistant", "content": response})
         
-        # 3. Append Assistant Msg
-        st.session_state.messages.append({"role": "assistant", "content": response})
-        
-        # 4. RERUN to update UI (New messages will appear at TOP, pushing buttons down)
+        except Exception as e:
+             st.error(f"Agent Error: {e}")
+             st.session_state.messages.append({"role": "assistant", "content": f"⚠️ Error: {e}"})
+
+        # 4. Cleanup & Rerun
+        st.session_state.pending_prompt = None
+        st.session_state.agent_processing = False
         st.rerun()

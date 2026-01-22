@@ -1,8 +1,10 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from scout_app.ui.common import query_df, query_one, get_weighted_sentiment_data, get_raw_sentiment_data
+from scout_app.ui.common import query_df, query_one, get_weighted_sentiment_data, get_raw_sentiment_data, get_evidence_data, time_it
 
+@st.fragment
+@time_it
 def render_xray_tab(selected_asin, precalc):
     """
     Renders Tab 2: Customer X-Ray (Sentiment, Ratings, Evidence)
@@ -129,26 +131,18 @@ def render_xray_tab(selected_asin, precalc):
         )
 
     # --- Evidence (Quotes) ---
+    st.write("---")
     with st.expander("🔍 View Evidence (Quotes)"):
-        ev_query = """
-            SELECT 
-                COALESCE(am.category, rt.category) as "Category",
-                CASE 
-                    WHEN am.standard_aspect IS NOT NULL THEN '✅ ' || am.standard_aspect
-                    ELSE '⏳ ' || rt.aspect 
-                END as "Aspect (Status)",
-                rt.sentiment as "Sentiment", 
-                rt.quote as "Evidence Quote"
-            FROM review_tags rt
-            LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect
-            WHERE rt.parent_asin = ?
-            ORDER BY rt.sentiment, "Category"
-        """
-        st.dataframe(
-            query_df(ev_query, [selected_asin]),
-            use_container_width=True,
-            column_config={
-                "Aspect (Status)": st.column_config.TextColumn("Aspect (Status)"),
-                "Evidence Quote": st.column_config.TextColumn("Quote", width="large"),
-            },
-        )
+        df_ev = get_evidence_data(selected_asin)
+        if df_ev is not None and not df_ev.empty:
+            st.dataframe(
+                df_ev,
+                use_container_width=True,
+                column_config={
+                    "Aspect (Status)": st.column_config.TextColumn("Aspect (Status)"),
+                    "Evidence Quote": st.column_config.TextColumn("Quote", width="large"),
+                },
+                height=500
+            )
+        else:
+            st.info("No detailed quotes available.")

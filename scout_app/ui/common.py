@@ -1,39 +1,45 @@
-import sys
-import uuid
-from pathlib import Path
+import json
 import duckdb
 import pandas as pd
 import streamlit as st
+import sys
+from pathlib import Path
+import time
+import functools
 
 # Add root to sys.path to find core
 # Assuming this file is in scout_app/ui/common.py, root is ../../
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 from scout_app.core.config import Settings
 
+def time_it(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        start = time.time()
+        print(f"👉 [START] {func.__name__}")
+        try:
+            result = func(*args, **kwargs)
+        except Exception as e:
+            print(f"❌ [ERROR] {func.__name__}: {e}")
+            raise e
+        end = time.time()
+        print(f"✅ [END] {func.__name__} took {end - start:.4f}s")
+        return result
+    return wrapper
+
 # --- Database Helpers ---
-def get_db_path():
-    """Get the current ACTIVE database path (Read-Only Target)"""
-    return str(Settings.get_active_db_path())
 
+@time_it
 def query_df(sql, params=None):
-    """Run query against ACTIVE DB."""
-    try:
-        db_path = get_db_path()
-        with duckdb.connect(db_path, read_only=True) as conn:
-            return conn.execute(sql, params).df()
-    except Exception as e:
-        st.error(f"DB Error: {e}")
-        return pd.DataFrame()
+    with duckdb.connect(Settings.get_active_db_path(), read_only=True) as conn:
+        return conn.execute(sql, params).df()
 
+@time_it
 def query_one(sql, params=None):
-    try:
-        db_path = get_db_path()
-        with duckdb.connect(db_path, read_only=True) as conn:
-            res = conn.execute(sql, params).fetchone()
-            return res[0] if res else None
-    except Exception as e:
-        st.error(f"DB Error: {e}")
-        return None
+    with duckdb.connect(Settings.get_active_db_path(), read_only=True) as conn:
+        res = conn.execute(sql, params).fetchone()
+        return res[0] if res else None
+
 
 # --- Cached Data Functions ---
 @st.cache_data
@@ -123,18 +129,45 @@ def get_weighted_sentiment_data(asin: str):
         df_weighted['score_pct'] = df_weighted['score'] * 100
     return df_weighted
 
-@st.cache_data
-def get_precalc_stats(asin: str):
-    """Fetch pre-calculated metrics from product_stats table."""
-    import json
+@st.cache_data(ttl=300)
+def get_precalc_stats(asin):
+    print(f"[DEBUG] Fetching Pre-calc for: {asin}")
     sql = "SELECT metrics_json FROM product_stats WHERE asin = ?"
-    res = query_one(sql, [asin])
-    if res:
-        try:
-            return json.loads(res) if isinstance(res, str) else res
-        except:
-            return None
+    try:
+        res = query_one(sql, [asin])
+        print(f"[DEBUG] Result for {asin}: {'FOUND' if res else 'NONE'}")
+        if res:
+            try:
+                res_obj = json.loads(res) if isinstance(res, str) else res
+                print(f"[DEBUG] JSON Size: {len(res)/1024:.2f} KB")
+                return res_obj
+            except Exception as e:
+                print(f"[DEBUG] JSON Parse Error: {e}")
+                return None
+    except Exception as e:
+        print(f"[DEBUG] DB Error: {e}")
+        return None
     return None
+
+@st.cache_data
+def get_evidence_data(asin: str):
+    """Fetch evidence quotes with caching to prevent UI lag on reruns."""
+    ev_query = """
+        SELECT 
+            COALESCE(am.category, rt.category) as "Category",
+            CASE 
+                WHEN am.standard_aspect IS NOT NULL THEN '✅ ' || am.standard_aspect
+                ELSE '⏳ ' || rt.aspect 
+            END as "Aspect (Status)",
+            rt.sentiment as "Sentiment", 
+            rt.quote as "Evidence Quote"
+        FROM review_tags rt
+        LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect
+        WHERE rt.parent_asin = ?
+        ORDER BY rt.sentiment, "Category"
+        LIMIT 200
+    """
+    return query_df(ev_query, [asin])
 
 def request_new_asin(asin_input, note="", force_update=False, user_id=None):
     """

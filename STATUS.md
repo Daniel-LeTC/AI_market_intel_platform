@@ -1,40 +1,38 @@
 # 🛠️ Technical Status & Context Map
 
-**Last Updated:** Jan 22, 2026 (UI Refactored & Functional)
+**Last Updated:** Jan 22, 2026
 **Current Branch:** `fix_rating_distribution`
-**Status:** **FUNCTIONAL BUT SLOW**
+**Status:** **PERFORMANCE SOLVED (st.fragment)**
 
 ---
 
 ## 🗺️ Critical File Map
 
-### 1. Core Logic (Backend)
-- **Ingest Engine:** `scout_app/core/ingest.py` (Stable)
-- **Stats Engine:** `scout_app/core/stats_engine.py` (Stable)
+### 1. UI Components (Optimized)
+- `scout_app/Market_Intelligence.py`: Main Orchestrator.
+- `scout_app/ui/tabs/*.py`: ALL Tabs are now wrapped with `@st.fragment`.
+    - **Outcome:** Interactions inside a tab (Toggle, Chat, Select) ONLY re-run that specific tab. Global app reload is eliminated for local actions.
+- `scout_app/ui/common.py`:
+    - `query_df`: Wrapped with `time_it` (debug).
+    - `get_precalc_stats`: Aggressively cached + Fallback logic (Child -> Parent ASIN).
 
-### 2. User Interface (Refactored)
-- **Orchestrator:** `scout_app/Market_Intelligence.py` (Fixed Imports)
-- **Tabs:** `scout_app/ui/tabs/*.py` (Fixed Imports)
-- **Helpers:** `scout_app/ui/common.py` (Fixed Imports)
-
----
-
-## ⚠️ Known Issues
-- **UI Latency:** Dashboard takes ~3-4 seconds to interactive state even with Pre-calc data.
-    - *Suspects:* Streamlit Data Transfer overhead, Plotly rendering on client-side, or unoptimized re-runs.
+### 2. Core Logic
+- `scout_app/core/stats_engine.py`: JSON-based pre-calculation.
 
 ---
 
-## 📝 Session Log (Recent Actions)
+## 📝 Session Log (The Performance Battle)
 
-1.  **Fixed Import Errors:** Switched all relative imports (`..`) to absolute imports (`scout_app.ui...`) to fix Docker runtime crashes.
-2.  **Restarted Service:** `scout_ui` container restarted.
-3.  **UI Status:** Online, functional, debug indicator shows "Pre-calculated", but UX is sluggish.
+1.  **Issue:** UI Latency 3-4s per interaction.
+    - *Root Cause 1:* Streamlit Full Rerun for every interaction (Chart toggle re-runs heavy SQL queries).
+    - *Root Cause 2:* Child ASINs causing Cache Miss (Live Query Fallback).
+2.  **Fixes Implemented:**
+    - **`@st.fragment`:** Applied to all Tabs. Isolates execution scope.
+    - **Lazy Loading:** Evidence quotes put into Expander (safe now with Fragment).
+    - **Parent Lookup:** Fixed Cache Miss logic in `common.py`.
+    - **UX:** Disabled Chat Input while AI is thinking.
 
 ---
 
-## ⏭️ Next Steps
-
-1.  **Merge Branch:** Save this state as a milestone.
-2.  **Performance Profiling:** Use `st.profiler` or simple timers to find the 3s bottleneck.
-3.  **Social Scout AI:** Proceed to next feature after merge.
+## ⏭️ Next Priority
+- **Social Scout AI:** Trend Bridge Implementation.

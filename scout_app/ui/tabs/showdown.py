@@ -2,6 +2,7 @@ import streamlit as st
 import plotly.express as px
 from scout_app.ui.common import query_df
 
+@st.fragment
 def render_showdown_tab(selected_asin):
     """
     Renders Tab 3: Market Showdown (Head-to-Head)
@@ -9,14 +10,18 @@ def render_showdown_tab(selected_asin):
     st.subheader("⚔️ Head-to-Head Comparison")
     
     ai_asins_df = query_df(
-        "SELECT DISTINCT parent_asin FROM review_tags WHERE parent_asin != ?", [selected_asin]
+        "SELECT DISTINCT parent_asin FROM review_tags WHERE parent_asin != ? ORDER BY parent_asin", [selected_asin]
     )
     ai_asins = ai_asins_df["parent_asin"].tolist() if not ai_asins_df.empty else []
 
     if ai_asins:
         c_sel, c_blank = st.columns([1, 2])
         with c_sel:
-            challenger_asin = st.selectbox("Select Challenger:", ai_asins)
+            challenger_asin = st.selectbox(
+                "Select Challenger:", 
+                ai_asins,
+                key=f"challenger_select_{selected_asin}"
+            )
         
         if challenger_asin:
             # --- 0. TALE OF THE TAPE (REAL STATS) ---
