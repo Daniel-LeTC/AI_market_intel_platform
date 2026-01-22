@@ -1,16 +1,32 @@
 import duckdb
+import shutil
+import time
 from scout_app.core.stats_engine import StatsEngine
 from scout_app.core.config import Settings
-import time
 
 def backfill():
-    db_path = Settings.get_active_db_path()
-    print(f"🚀 Starting Backfill on {db_path.name}...")
+    # 1. Identify Target (Standby) DB
+    active_db = Settings.get_active_db_path()
+    target_db = Settings.get_standby_db_path()
     
-    engine = StatsEngine(db_path=str(db_path))
+    print(f"[Blue-Green] Active: {active_db.name}, Target: {target_db.name}")
+    print(f"🚀 Starting Backfill Process...")
+
+    # 2. Sync: Copy Active -> Target
+    try:
+        if active_db.exists():
+            print(f"📋 Syncing {active_db.name} -> {target_db.name}...")
+            shutil.copy(active_db, target_db)
+    except Exception as e:
+        print(f"❌ Sync Failed: {e}")
+        return
+
+    # 3. Process on Target DB (No Lock on Active)
+    print(f"⚙️ Processing on {target_db.name}...")
+    engine = StatsEngine(db_path=str(target_db))
     
-    # 1. Get all ASINs
-    with duckdb.connect(str(db_path)) as conn:
+    # Get all ASINs from Target
+    with duckdb.connect(str(target_db)) as conn:
         asins = [row[0] for row in conn.execute("SELECT asin FROM products").fetchall()]
     
     total = len(asins)
@@ -32,10 +48,15 @@ def backfill():
     end_time = time.time()
     duration = end_time - start_time
     
-    print(f"\n\n✅ Backfill Completed!")
+    print(f"\n\n✅ Calculation Completed on Standby DB!")
     print(f"⏱️ Duration: {duration:.2f}s (Avg: {duration/total:.2f}s/asin)")
     print(f"📈 Success: {success}")
     print(f"📉 Errors: {errors}")
+
+    # 4. Swap DBs
+    print("🔄 Swapping Database to apply changes...")
+    Settings.swap_db()
+    print(f"✅ DONE! Active DB is now {target_db.name}")
 
 if __name__ == "__main__":
     backfill()

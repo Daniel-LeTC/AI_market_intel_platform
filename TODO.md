@@ -6,18 +6,17 @@
 - [x] Schema `product_stats` created.
 - [x] `StatsEngine` implemented.
 - [x] Ingest Integration done.
-- [x] Backfill completed (Note: Caused Lock issue, need fix for future).
+- [x] Backfill completed.
 
-## 🔄 Phase 5: UI Refactor & Optimization (Current Focus)
-- [ ] **Fix Concurrency (Blue-Green Backfill):**
-    - [ ] Update `scripts/backfill_stats_v1.py` to write to Standby DB and swap, avoiding UI locks.
-- [ ] **Split Monolithic UI (`Market_Intelligence.py`):**
-    - [ ] Create `scout_app/ui/common.py` (Shared helpers).
-    - [ ] Create `scout_app/ui/tabs/overview.py` (Tab 1).
-    - [ ] Create `scout_app/ui/tabs/xray.py` (Tab 2).
-    - [ ] Create `scout_app/ui/tabs/showdown.py` (Tab 3).
-    - [ ] Create `scout_app/ui/tabs/strategy.py` (Tab 4).
-    - [ ] Refactor `Market_Intelligence.py` to be a lightweight orchestrator.
+## ✅ Phase 5: UI Refactor & Optimization (Completed)
+- [x] **Fix Concurrency:** Updated `scripts/backfill_stats_v1.py` to use Blue-Green deployment.
+- [x] **Split Monolithic UI:**
+    - [x] Created `scout_app/ui/common.py`.
+    - [x] Created `scout_app/ui/tabs/overview.py`.
+    - [x] Created `scout_app/ui/tabs/xray.py`.
+    - [x] Created `scout_app/ui/tabs/showdown.py`.
+    - [x] Created `scout_app/ui/tabs/strategy.py`.
+    - [x] Refactored `Market_Intelligence.py`.
 
-## 🔄 Phase 6: Clean Up
-- [ ] Remove legacy SQL queries from `Market_Intelligence.py` once Refactor is stable.
+## ✅ Phase 6: Clean Up (Completed)
+- [x] Removed legacy SQL queries from `Market_Intelligence.py` (via refactor).

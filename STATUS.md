@@ -1,37 +1,40 @@
 # 🛠️ Technical Status & Context Map
 
-**Last Updated:** Jan 22, 2026 (Refactor Planning)
+**Last Updated:** Jan 22, 2026 (UI Refactored & Functional)
 **Current Branch:** `fix_rating_distribution`
-**Active Focus:** UI Refactoring & Blue-Green Fix.
+**Status:** **FUNCTIONAL BUT SLOW**
 
 ---
 
 ## 🗺️ Critical File Map
 
 ### 1. Core Logic (Backend)
-- **Ingest Engine:** `scout_app/core/ingest.py` (Stable).
-- **Stats Engine:** `scout_app/core/stats_engine.py` (Stable).
+- **Ingest Engine:** `scout_app/core/ingest.py` (Stable)
+- **Stats Engine:** `scout_app/core/stats_engine.py` (Stable)
 
-### 2. User Interface (Streamlit)
-- **Main App:** `scout_app/Market_Intelligence.py`
-    - *Status:* **Functional but Bloated.** >800 lines. Using Pre-calc data.
-    - *Issue:* Hard to maintain. Needs modularization.
-
-### 3. Operational Issues
-- **DB Locking:** Running `backfill_stats_v1.py` on the Active DB caused Streamlit to freeze.
-    - *Fix Required:* Move backfill logic to use Blue-Green deployment (Write Standby -> Swap).
+### 2. User Interface (Refactored)
+- **Orchestrator:** `scout_app/Market_Intelligence.py` (Fixed Imports)
+- **Tabs:** `scout_app/ui/tabs/*.py` (Fixed Imports)
+- **Helpers:** `scout_app/ui/common.py` (Fixed Imports)
 
 ---
 
-## 💾 Database Schema Snapshot
+## ⚠️ Known Issues
+- **UI Latency:** Dashboard takes ~3-4 seconds to interactive state even with Pre-calc data.
+    - *Suspects:* Streamlit Data Transfer overhead, Plotly rendering on client-side, or unoptimized re-runs.
 
-### Active Database: `scout_app/database/scout_a.duckdb`
-- **`product_stats`:** Fully populated (10k+ records).
+---
+
+## 📝 Session Log (Recent Actions)
+
+1.  **Fixed Import Errors:** Switched all relative imports (`..`) to absolute imports (`scout_app.ui...`) to fix Docker runtime crashes.
+2.  **Restarted Service:** `scout_ui` container restarted.
+3.  **UI Status:** Online, functional, debug indicator shows "Pre-calculated", but UX is sluggish.
 
 ---
 
 ## ⏭️ Next Steps
 
-1.  **Git Push:** Save current state (Logic works, Architecture needs cleanup).
-2.  **Refactor UI:** Split `Market_Intelligence.py` into `scout_app/ui/tabs/*`.
-3.  **Fix Backfill Script:** Implement Blue-Green logic.
+1.  **Merge Branch:** Save this state as a milestone.
+2.  **Performance Profiling:** Use `st.profiler` or simple timers to find the 3s bottleneck.
+3.  **Social Scout AI:** Proceed to next feature after merge.
