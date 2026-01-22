@@ -5,6 +5,7 @@ from typing import Dict, Any
 import shutil
 import os
 from .config import Settings
+from .stats_engine import StatsEngine
 
 class DataIngester:
     def __init__(self):
@@ -270,6 +271,20 @@ class DataIngester:
                         SELECT *, current_timestamp FROM temp_reviews
                         WHERE review_id NOT IN (SELECT review_id FROM reviews)
                     """)
+
+            # 3.5. Trigger Pre-calculation (NEW)
+            try:
+                unique_asins = df["asin"].unique().to_list() if "asin" in df.columns else []
+                if not unique_asins and "parent_asin" in df.columns:
+                    unique_asins = df["parent_asin"].unique().to_list()
+                
+                if unique_asins:
+                    print(f"📊 [Ingester] Recalculating stats for {len(unique_asins)} ASINs on {target_db.name}...")
+                    engine = StatsEngine(db_path=str(target_db))
+                    for asin in unique_asins:
+                        if asin: engine.calculate_and_save(asin)
+            except Exception as stats_err:
+                print(f"⚠️ [Ingester] Stats Calculation Warning: {stats_err}")
             
             # 4. Swap
             Settings.swap_db()

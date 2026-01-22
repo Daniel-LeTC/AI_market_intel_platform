@@ -87,6 +87,107 @@ def query_one(sql, params=None):
         st.error(f"DB Error: {e}")
         return None
 
+# --- CACHED DATA FUNCTIONS (NEW) ---
+@st.cache_data
+def get_raw_sentiment_data(asin: str):
+    """Fetch raw mention counts for sentiment analysis (unweighted)."""
+    aspect_query = """
+        SELECT 
+            COALESCE(am.standard_aspect, rt.aspect) as aspect,
+            SUM(CASE WHEN rt.sentiment = 'Positive' THEN 1 ELSE 0 END) as positive,
+            SUM(CASE WHEN rt.sentiment = 'Negative' THEN 1 ELSE 0 END) as negative
+        FROM review_tags rt
+        LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect
+        WHERE rt.parent_asin = ?
+        GROUP BY 1
+        HAVING (positive + negative) > 1 
+        ORDER BY (positive + negative) DESC
+        LIMIT 10
+    """
+    return query_df(aspect_query, [asin])
+
+@st.cache_data
+def get_weighted_sentiment_data(asin: str):
+    """Fetch and calculate the weighted sentiment score using DuckDB."""
+    # 1. Get Weights from Histogram
+    w_query = "SELECT rating_breakdown FROM products WHERE asin = ?"
+    w_json = query_one(w_query, [asin])
+    
+    weights = {5:0, 4:0, 3:0, 2:0, 1:0}
+    has_weights = False
+    if w_json:
+        import json
+        try:
+            raw_w = json.loads(w_json) if isinstance(w_json, str) else w_json
+            total_w = sum(raw_w.values())
+            if total_w > 0:
+                weights = {int(k): v / total_w for k, v in raw_w.items()}
+                has_weights = True
+        except:
+            pass # Return empty if weights fail logic later
+
+    if not has_weights:
+        return pd.DataFrame()
+
+    # 2. Optimized SQL Aggregation
+    weighted_sql = f"""
+        WITH base AS (
+            SELECT 
+                COALESCE(am.standard_aspect, rt.aspect) as aspect,
+                CAST(ROUND(r.rating_score) AS INTEGER) as star,
+                rt.sentiment
+            FROM review_tags rt
+            JOIN reviews r ON rt.review_id = r.review_id
+            LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect
+            WHERE rt.parent_asin = ?
+        ),
+        aspect_stats AS (
+            SELECT 
+                aspect,
+                star,
+                SUM(CASE WHEN sentiment = 'Positive' THEN 1 ELSE 0 END) * 1.0 / COUNT(*) as pos_rate
+            FROM base
+            GROUP BY 1, 2
+        ),
+        weighted_calc AS (
+            SELECT 
+                aspect,
+                SUM(
+                    pos_rate * CASE 
+                        WHEN star = 5 THEN {weights.get(5, 0)}
+                        WHEN star = 4 THEN {weights.get(4, 0)}
+                        WHEN star = 3 THEN {weights.get(3, 0)}
+                        WHEN star = 2 THEN {weights.get(2, 0)}
+                        WHEN star = 1 THEN {weights.get(1, 0)}
+                        ELSE 0
+                    END
+                ) as score
+            FROM aspect_stats
+            GROUP BY 1
+        )
+        SELECT aspect, score
+        FROM weighted_calc
+        ORDER BY score ASC
+        LIMIT 15
+    """
+    df_weighted = query_df(weighted_sql, [asin])
+    if not df_weighted.empty:
+        df_weighted['score_pct'] = df_weighted['score'] * 100
+    return df_weighted
+
+@st.cache_data
+def get_precalc_stats(asin: str):
+    """Fetch pre-calculated metrics from product_stats table."""
+    import json
+    sql = "SELECT metrics_json FROM product_stats WHERE asin = ?"
+    res = query_one(sql, [asin])
+    if res:
+        try:
+            return json.loads(res) if isinstance(res, str) else res
+        except:
+            return None
+    return None
+
 
 def request_new_asin(asin_input, note="", force_update=False):
     """
@@ -279,6 +380,9 @@ else:
         if len(product_display_title) > 50:
             st.caption(product_display_title)
 
+        # --- PRE-CALCULATED STATS (FETCH ONCE) ---
+        precalc = get_precalc_stats(selected_asin)
+
         # --- TABS LAYOUT ---
         # Cleanup Scroll Button Logic (Run on every rerun to clear button if switching tabs)
         cleanup_js = """
@@ -303,31 +407,36 @@ else:
         # =================================================================================
         with tab_overview:
             # 1. KPIs
-            # Fetch Metadata directly from Products table
-            # DuckDB JSON extraction: CAST(json_extract(...) AS INT)
-            kpi_query = """
-                SELECT 
-                    real_total_ratings as total_reviews,
-                    real_average_rating as avg_rating,
-                    variation_count as total_variations,
-                    (
-                        CAST(json_extract(rating_breakdown, '$."1"') AS INT) + 
-                        CAST(json_extract(rating_breakdown, '$."2"') AS INT)
-                    ) as negative_pct
-                FROM products
-                WHERE asin = ?
-            """
-            kpis_df = query_df(kpi_query, [selected_asin])
-            if not kpis_df.empty:
-                kpis = kpis_df.iloc[0]
-                # Fallback if json is null
-                neg_pct = kpis['negative_pct'] if pd.notnull(kpis['negative_pct']) else 0.0
-                
+            if precalc and "kpis" in precalc:
+                kpis = precalc["kpis"]
                 c1, c2, c3, c4 = st.columns(4)
-                with c1: st.metric("Total Ratings (Real)", f"{kpis['total_reviews']:,.0f}")
-                with c2: st.metric("Average Rating (Real)", f"{kpis['avg_rating']:.1f} ⭐")
-                with c3: st.metric("Variations Tracked", f"{kpis['total_variations']}") 
-                with c4: st.metric("Negative Rating %", f"{neg_pct:.0f}%", delta_color="inverse")
+                with c1: st.metric("Total Ratings (Real)", f"{kpis.get('total_reviews', 0):,.0f}")
+                with c2: st.metric("Average Rating (Real)", f"{kpis.get('avg_rating', 0.0):.1f} ⭐")
+                with c3: st.metric("Variations Tracked", f"{kpis.get('total_variations', 0)}") 
+                with c4: st.metric("Negative Rating %", f"{kpis.get('neg_pct', 0.0):.0f}%", delta_color="inverse")
+            else:
+                # Fallback to direct query if precalc missing
+                kpi_query = """
+                    SELECT 
+                        real_total_ratings as total_reviews,
+                        real_average_rating as avg_rating,
+                        variation_count as total_variations,
+                        (
+                            CAST(json_extract(rating_breakdown, '$."1"') AS INT) + 
+                            CAST(json_extract(rating_breakdown, '$."2"') AS INT)
+                        ) as negative_pct
+                    FROM products
+                    WHERE asin = ?
+                """
+                kpis_df = query_df(kpi_query, [selected_asin])
+                if not kpis_df.empty:
+                    kpis = kpis_df.iloc[0]
+                    neg_pct = kpis['negative_pct'] if pd.notnull(kpis['negative_pct']) else 0.0
+                    c1, c2, c3, c4 = st.columns(4)
+                    with c1: st.metric("Total Ratings (Real)", f"{kpis['total_reviews']:,.0f}")
+                    with c2: st.metric("Average Rating (Real)", f"{kpis['avg_rating']:.1f} ⭐")
+                    with c3: st.metric("Variations Tracked", f"{kpis['total_variations']}") 
+                    with c4: st.metric("Negative Rating %", f"{neg_pct:.0f}%", delta_color="inverse")
 
             st.markdown("---")
 
@@ -374,33 +483,58 @@ else:
             c1, c2 = st.columns([2, 1])
             with c1:
                 st.subheader("📊 Aspect Sentiment Analysis")
-                aspect_query = """
-                    SELECT 
-                        COALESCE(am.standard_aspect, rt.aspect) as aspect,
-                        SUM(CASE WHEN rt.sentiment = 'Positive' THEN 1 ELSE 0 END) as positive,
-                        SUM(CASE WHEN rt.sentiment = 'Negative' THEN 1 ELSE 0 END) as negative
-                    FROM review_tags rt
-                    LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect
-                    WHERE rt.parent_asin = ?
-                    GROUP BY 1
-                    HAVING (positive + negative) > 1 
-                    ORDER BY (positive + negative) DESC
-                    LIMIT 10
-                """
-                df_aspect = query_df(aspect_query, [selected_asin])
-                if not df_aspect.empty:
-                    fig_aspect = px.bar(
-                        df_aspect,
-                        y="aspect",
-                        x=["positive", "negative"],
-                        orientation="h",
-                        labels={"value": "Mentions", "variable": "Sentiment"},
-                        color_discrete_map={"positive": "#00CC96", "negative": "#EF553B"},
-                        height=400
-                    )
-                    st.plotly_chart(fig_aspect, use_container_width=True)
+                
+                # --- TOGGLE SWITCH ---
+                analysis_mode = st.radio(
+                    "Analysis Mode:", 
+                    ["Raw Mentions (Volume)", "Weighted Impact (Star-Adjusted)"],
+                    horizontal=True,
+                    help="Raw: Count of mentions. Weighted: Adjusted by Star Rating (what drives 1-star vs 5-star)."
+                )
+
+                if "Weighted" in analysis_mode:
+                    # PRE-CALC WEIGHTED
+                    if precalc and "sentiment_weighted" in precalc:
+                        df_w = pd.DataFrame(precalc["sentiment_weighted"])
+                    else:
+                        df_w = get_weighted_sentiment_data(selected_asin)
+
+                    if not df_w.empty:
+                        fig_w = px.bar(
+                            df_w,
+                            x="score_pct",
+                            y="aspect",
+                            orientation="h",
+                            title="Weighted Sentiment Impact",
+                            labels={"score_pct": "Impact Score (0-100)", "aspect": "Feature"},
+                            color="score_pct",
+                            color_continuous_scale="RdBu", # Red (Low) to Blue (High)
+                            height=500
+                        )
+                        st.plotly_chart(fig_w, use_container_width=True)
+                    else:
+                        st.warning("Weighted Analysis unavailable.")
+
                 else:
-                    st.info("Not enough data for Aspect Analysis.")
+                    # PRE-CALC RAW
+                    if precalc and "sentiment_raw" in precalc:
+                        df_aspect = pd.DataFrame(precalc["sentiment_raw"])
+                    else:
+                        df_aspect = get_raw_sentiment_data(selected_asin)
+
+                    if not df_aspect.empty:
+                        fig_aspect = px.bar(
+                            df_aspect,
+                            y="aspect",
+                            x=["positive", "negative"],
+                            orientation="h",
+                            labels={"value": "Mentions", "variable": "Sentiment"},
+                            color_discrete_map={"positive": "#00CC96", "negative": "#EF553B"},
+                            height=400
+                        )
+                        st.plotly_chart(fig_aspect, use_container_width=True)
+                    else:
+                        st.info("Not enough data for Aspect Analysis.")
 
             with c2:
                 st.subheader("⚠️ Real Rating Distribution")
@@ -443,10 +577,14 @@ else:
             
             st.markdown("---")
             st.subheader("📈 Rating Trend over Time")
-            df_trend = query_df(
-                "SELECT DATE_TRUNC('month', review_date) as month, AVG(rating_score) as avg_score FROM reviews WHERE parent_asin = ? GROUP BY 1 ORDER BY 1",
-                [selected_asin],
-            )
+            if precalc and "rating_trend" in precalc:
+                df_trend = pd.DataFrame(precalc["rating_trend"])
+            else:
+                df_trend = query_df(
+                    "SELECT DATE_TRUNC('month', review_date) as month, AVG(rating_score) as avg_score FROM reviews WHERE parent_asin = ? GROUP BY 1 ORDER BY 1",
+                    [selected_asin],
+                )
+
             if not df_trend.empty:
                 st.plotly_chart(
                     px.line(
