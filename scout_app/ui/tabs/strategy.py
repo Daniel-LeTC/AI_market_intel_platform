@@ -91,59 +91,41 @@ def render_strategy_tab(selected_asin, current_user_id):
     st.markdown("---")
 
     # --- 3. Input Logic (BOTTOM) ---
-    if "agent_processing" not in st.session_state:
-        st.session_state.agent_processing = False
-    
-    # Check for pending prompt from previous run (Quick Action or Chat Input)
-    if "pending_prompt" not in st.session_state:
-        st.session_state.pending_prompt = None
-
-    # HANDLE QUICK BUTTONS (Set pending prompt & rerun)
+    # Handle Quick Buttons (Set prompt directly)
+    final_prompt = None
     if quick_prompt:
-        st.session_state.pending_prompt = quick_prompt
-        st.session_state.agent_processing = True
-        st.rerun()
-
-    # HANDLE CHAT INPUT
-    # Disable if processing OR if we just set a pending prompt
-    should_disable = st.session_state.agent_processing or (st.session_state.pending_prompt is not None)
+        final_prompt = quick_prompt
     
-    if prompt := st.chat_input("Ask Strategy Hub...", disabled=should_disable):
-        st.session_state.pending_prompt = prompt
-        st.session_state.agent_processing = True
-        st.rerun()
+    # Handle Chat Input
+    # Note: Streamlit's chat_input is separate from buttons. 
+    # If button is clicked, quick_prompt is set -> We run logic.
+    # If chat_input is used, prompt is set -> We run logic.
+    
+    if (prompt := st.chat_input("Ask Strategy Hub...")) or final_prompt:
+        if not final_prompt:
+            final_prompt = prompt
 
-    # --- PROCESS LOGIC (Run on Rerun) ---
-    if st.session_state.agent_processing and st.session_state.pending_prompt:
-        final_prompt = st.session_state.pending_prompt
+        # 1. Append User Msg & Draw immediately
+        st.session_state.messages.append({"role": "user", "content": final_prompt})
+        with st.chat_message("user"):
+            st.markdown(final_prompt)
         
-        # 1. Append User Msg (Visual Feedback)
-        # Check if already appended to avoid duplicates on reruns (though logic should prevent this)
-        if not st.session_state.messages or st.session_state.messages[-1]["content"] != final_prompt:
-             st.session_state.messages.append({"role": "user", "content": final_prompt})
-             # Force redraw history? No, wait for next rerun or manual draw?
-             # Actually, since we are at bottom, history is at top. 
-             # We need to rerun to show user msg at top? 
-             # No, let's run logic then show result. User msg will appear next time.
-        
-        # 2. Generate Answer
-        try:
-            with st.spinner("🕵️ Detective is thinking... (Do not close tab)"):
-                from streamlit.runtime.scriptrunner import add_script_run_ctx
-                # Streamlit callback needs context if using LangChain's StreamlitCallbackHandler
-                # But here we use simple answer() method.
-                response = st.session_state.detective.answer(
-                    final_prompt, default_asin=selected_asin, user_id=current_user_id
-                )
-            
-            # 3. Append Assistant Msg
-            st.session_state.messages.append({"role": "assistant", "content": response})
-        
-        except Exception as e:
-             st.error(f"Agent Error: {e}")
-             st.session_state.messages.append({"role": "assistant", "content": f"⚠️ Error: {e}"})
+        # 2. Generate Answer (Streamed/Spinner)
+        with st.chat_message("assistant"):
+            with st.spinner("🕵️ Detective is thinking..."):
+                try:
+                    # Run Agent
+                    response = st.session_state.detective.answer(
+                        final_prompt, default_asin=selected_asin, user_id=current_user_id
+                    )
+                    st.markdown(response)
+                    
+                    # 3. Append Assistant Msg to History
+                    st.session_state.messages.append({"role": "assistant", "content": response})
+                    
+                except Exception as e:
+                    st.error(f"Agent Error: {e}")
+                    st.session_state.messages.append({"role": "assistant", "content": f"⚠️ Error: {e}"})
 
-        # 4. Cleanup & Rerun
-        st.session_state.pending_prompt = None
-        st.session_state.agent_processing = False
-        st.rerun()
+    # Note: No st.rerun() needed here. 
+    # The new messages are drawn. Next time user interacts, history loop at top handles re-drawing.

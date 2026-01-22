@@ -27,31 +27,53 @@ for key in ["user_id", "role", "username"]:
     if key not in st.session_state:
         st.session_state[key] = None
 
+# --- AUTHENTICATION GATEKEEPER ---
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+# Ensure keys exist
+for key in ["user_id", "role", "username"]:
+    if key not in st.session_state:
+        st.session_state[key] = None
+
+# Create a placeholder for the login form
+login_placeholder = st.empty()
+
+# If NOT authenticated, render the login form inside the placeholder
 if not st.session_state["authenticated"]:
     # Login Page Layout
-    c1, c2, c3 = st.columns([1, 1, 1])
-    with c2:
-        st.markdown("# 🔐 Login")
-        with st.form("login_form"):
-            username = st.text_input("Username")
-            password = st.text_input("Password", type="password")
-            submit = st.form_submit_button("Login")
+    with login_placeholder.container():
+        c1, c2, c3 = st.columns([1, 1, 1])
+        with c2:
+            st.markdown("# 🔐 Login")
+            with st.form("login_form"):
+                username = st.text_input("Username")
+                password = st.text_input("Password", type="password")
+                submit = st.form_submit_button("Login")
 
-            if submit:
-                auth = AuthManager()
-                user = auth.verify_user(username, password)
-                if user:
-                    st.session_state["authenticated"] = True
-                    st.session_state["user_id"] = user["user_id"]
-                    st.session_state["username"] = user["username"]
-                    st.session_state["role"] = user["role"]
-                    st.success(f"Welcome back, {user['username']}!")
-                    st.rerun()
+                if submit:
+                    auth = AuthManager()
+                    user = auth.verify_user(username, password)
+                    if user:
+                        st.session_state["authenticated"] = True
+                        st.session_state["user_id"] = user["user_id"]
+                        st.session_state["username"] = user["username"]
+                        st.session_state["role"] = user["role"]
+                        # Do NOT rerun. Just clear the placeholder.
+                        login_placeholder.empty()
+                    else:
+                        st.error("Invalid username or password.")
+                        st.stop() # Stop here if failed
                 else:
-                    st.error("Invalid username or password.")
-    st.stop()  # Stop execution if not logged in
+                    st.stop() # Stop here if waiting for input
 
 # --- MAIN APP (Authenticated) ---
+# If we reach here, it means st.session_state["authenticated"] is True
+# (Either from previous session OR just set above)
+
+# Double check to clear placeholder if it was set (e.g. strict refresh)
+login_placeholder.empty()
+
 current_user_id = st.session_state["user_id"]
 current_username = st.session_state["username"]
 
