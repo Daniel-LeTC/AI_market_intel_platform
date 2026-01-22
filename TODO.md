@@ -1,23 +1,17 @@
 # 📝 Tactical Plan (TODO)
 
-## Phase 1 & 2 & 3 (Part 1): Done 🚀
-- [x] Architecture, Performance, Tab 1 & Tab 2 (X-Ray).
-- [x] Fixed `variation_count` bug.
-- [x] Implemented "Estimated Customer Impact" logic.
-
-## Phase 3: Refinement (Current) 🧐 [IN PROGRESS]
-
-### Tab 3: Market Showdown [IN PROGRESS]
-- [x] **Smart Matchmaking:** Implemented (Niche + Rating Count Match).
-- [x] **UI Fix:** Pagination & Selection reset bug fixed.
-- [ ] **Data Audit:** Wait for `recalc_all_stats.py` to finish, then sync `scout_a` to `scout_b`.
-- [ ] **Weighted Comparison:** Upgrade Sentiment Comparison Chart to use "Estimated Impact" logic (Weighted % instead of Raw %).
-
-### Tab 4: Strategy Hub [DONE]
-- [x] **Refactor Prompt:** Tách prompt ra file `prompts.py`.
-- [x] **Tune Persona:** Implemented "Anti-Múa" rules (Concise, Data-first, Actionable).
-- [x] **Tool Upgrade:** Updated `get_product_dna` to use pre-calculated `product_stats`.
+## Phase 3: Polish & Maintenance 🛠️ [IN PROGRESS]
+- [ ] **Admin Console Integration:**
+    - [ ] Thêm nút "Fix Missing Variations" (Chạy `fix_variation_counts.py` từ UI).
+    - [ ] Thêm nút "Full Stats Recalc" (Chạy `recalc_all_stats.py` từ UI có thanh Progress).
+    - [ ] Thêm nút "Sync Blue-Green" (Copy A sang B hoặc ngược lại).
+- [ ] **Tab 3 Sentiment Upgrade:** Chuyển Chart so sánh đối thủ sang dùng Weighted % (Estimated Impact logic) để công bằng hơn.
 
 ## Phase 4: Social Scout AI 🛰️ [PENDING]
-- [ ] Implement Trend Bridge (Keyword matching).
-- [ ] Sentiment X-Ray (Visual drill-down).
+- [ ] **Trend Bridge:** Keyword matching giữa reviews và TikTok/Meta trends.
+- [ ] **Sentiment X-Ray:** Deep-dive vào cảm xúc trên social media.
+- [ ] **UI Integration:** Hoàn thiện Dashboard Social Scout.
+
+## Phase 5: Demo & Merge 🚀 [READY]
+- [x] Stress Test AI (Total War Test - PASSED).
+- [ ] Merge `fix_rating_distribution` -> `ui-refactor`.
