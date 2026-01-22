@@ -7,13 +7,14 @@ from google import genai
 from google.genai import types
 from .config import Settings
 from .logger import log_event
+from .prompts import DETECTIVE_SYS_PROMPT, get_user_context_prompt
 
 # --- Config ---
 MODEL_NAME = Settings.GEMINI_MODEL 
 
 class DetectiveAgent:
     def __init__(self, api_key=None):
-        # We don't cache DB_PATH here because it might swap
+        # ... rest of init ...
         self.api_key = api_key or os.getenv("GEMINI_API_KEY") or Settings.GEMINI_MINER_KEY
         
         if self.api_key:
@@ -23,6 +24,7 @@ class DetectiveAgent:
             print("⚠️ Detective Warning: No API Key found.")
 
         self.chat_session = None
+        self.system_prompt = DETECTIVE_SYS_PROMPT
 
     # --- DB Helper (Blue-Green Aware) ---
     def _get_db_path(self):
@@ -64,45 +66,34 @@ class DetectiveAgent:
             WHERE asin = ? OR parent_asin = ?
             LIMIT 1
         """
-        # 2. Variation Stats
-        query_vars = """
-            SELECT 
-                COUNT(DISTINCT child_asin) as total_variations,
-                LIST(DISTINCT variation_text) FILTER (variation_text IS NOT NULL) as var_list
-            FROM reviews 
-            WHERE parent_asin = ?
-        """
+        # 2. Get Pre-calculated Stats
+        query_stats = "SELECT metrics_json FROM product_stats WHERE asin = ?"
+        
         try:
             df_meta = self._run_query(query_meta, [asin, asin])
-            df_vars = self._run_query(query_vars, [asin])
+            res_stats = self._run_query(query_stats, [asin], fetch_df=False)
             
             result = {}
             if not df_meta.empty:
                 result.update(df_meta.iloc[0].to_dict())
-            else:
-                result["notice"] = f"No static metadata found for ASIN {asin}."
-
-            if not df_vars.empty:
-                row = df_vars.iloc[0]
-                total = row['total_variations']
-                var_raw_list = row['var_list'] if row['var_list'] is not None else []
-                
-                colors = set()
-                sizes = set()
-                for v in var_raw_list: 
-                    parts = v.split(',')
-                    for p in parts:
-                        if "Color:" in p: colors.add(p.split(":")[-1].strip())
-                        if "Size:" in p: sizes.add(p.split(":")[-1].strip())
-                
-                result["variation_stats"] = {
-                    "total_count": int(total),
-                    "detected_colors": list(colors)[:20],
-                    "detected_sizes": list(sizes)[:10]
+            
+            if res_stats:
+                stats = json.loads(res_stats[0][0])
+                result["OFFICIAL_MARKET_STATS"] = {
+                    "real_average_rating": stats.get("kpis", {}).get("avg_rating"),
+                    "total_reviews_on_amazon": stats.get("kpis", {}).get("total_reviews"),
+                    "variation_count": stats.get("kpis", {}).get("total_variations"),
+                    "negative_review_percentage": stats.get("kpis", {}).get("neg_pct")
                 }
-            return json.dumps(result, default=str)
+                result["TOP_STRENGTHS"] = [a['aspect'] for a in stats.get("sentiment_weighted", []) if a['net_impact'] > 0][:5]
+                result["TOP_WEAKNESSES"] = [a['aspect'] for a in stats.get("sentiment_weighted", []) if a['net_impact'] < 0][-5:]
+            
+            if not result:
+                return f"No data found for ASIN {asin}."
+
+            return json.dumps(result)
         except Exception as e:
-            return f"Error fetching DNA: {e}"
+            return f"Error getting DNA for {asin}: {e}"
 
     def search_review_evidence(self, asin: str, aspect: str = None, sentiment: str = None, keyword: str = None) -> str:
         clauses = ["rt.parent_asin = ?"]
@@ -481,18 +472,23 @@ class DetectiveAgent:
             vocab = self._get_vocabulary()
             vocab_str = ", ".join(vocab)
             
+            # Build Full System Instruction
             system_instructions = f"""
-            You are 'The Detective', an elite Amazon Market Analyst.
-            KNOWLEDGE BASE (Standard Aspects): [{vocab_str}]
+            {self.system_prompt}
             
-            CRITICAL RULES:
-            1. Default ASIN: {default_asin}.
-            2. **ZERO TRUST POLICY:** Do NOT use your internal training data to guess Competitors, Prices, or specific Review Quotes.
-            3. **COMPETITORS:** When asked about competitors or comparisons, you **MUST** use the `analyze_competitors` tool. 
-               - If the tool returns specific brands (e.g., Geniospin, Erosebridal), ONLY discuss those.
+            ### KNOWLEDGE BASE (Standard Aspects):
+            [{vocab_str}]
+            
+            ### SESSION CONTEXT:
+            - Default ASIN: {default_asin}.
+            
+            ### ADDITIONAL CRITICAL RULES:
+            1. **ZERO TRUST POLICY:** Do NOT use your internal training data to guess Competitors, Prices, or specific Review Quotes.
+            2. **COMPETITORS:** When asked about competitors or comparisons, you **MUST** use the `analyze_competitors` tool. 
+               - If the tool returns specific brands, ONLY discuss those.
                - DO NOT mention general brands like Disney, Target, or Walmart unless the tool explicitly lists them.
-            4. **EVIDENCE:** Always back up your claims with data provided by the tools (counts, percentages, quotes).
-            5. **NO LOOPING:** If a tool returns "No evidence found" or similar empty results, DO NOT call it again with the same parameters. Admit you cannot find the info and provide a best-effort answer or suggestions.
+            3. **EVIDENCE:** Always back up your claims with data provided by the tools (counts, percentages, quotes).
+            4. **NO LOOPING:** If a tool returns "No evidence found" or similar empty results, DO NOT call it again with the same parameters. Admit you cannot find the info and provide a best-effort answer or suggestions.
             """
             
             self.chat_session = self.client.chats.create(

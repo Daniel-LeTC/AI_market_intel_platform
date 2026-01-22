@@ -16,7 +16,7 @@ class StatsEngine:
         return res[0] if res else None
 
     def calculate_kpis(self, conn, asin):
-        """Extract basic KPIs from products table."""
+        """Extract basic KPIs from products table (with fallback to reviews)."""
         sql = """
             SELECT 
                 real_total_ratings as total_reviews,
@@ -31,6 +31,17 @@ class StatsEngine:
             return {}
         
         row = df.iloc[0]
+        
+        # Variations Fallback
+        variations = int(row['total_variations']) if pd.notnull(row['total_variations']) else 0
+        if variations == 0:
+            # Try counting from reviews
+            try:
+                v_count = conn.execute("SELECT COUNT(DISTINCT child_asin) FROM reviews WHERE parent_asin = ?", [asin]).fetchone()[0]
+                variations = v_count
+            except:
+                pass
+
         # Calculate neg_pct from breakdown if possible
         neg_pct = 0
         try:
@@ -45,7 +56,7 @@ class StatsEngine:
         return {
             "total_reviews": int(row['total_reviews']) if pd.notnull(row['total_reviews']) else 0,
             "avg_rating": float(row['avg_rating']) if pd.notnull(row['avg_rating']) else 0.0,
-            "total_variations": int(row['total_variations']) if pd.notnull(row['total_variations']) else 0,
+            "total_variations": variations,
             "neg_pct": float(neg_pct)
         }
 
@@ -68,50 +79,110 @@ class StatsEngine:
         return df.to_dict(orient='records')
 
     def calculate_sentiment_weighted(self, conn, asin):
-        """Ported from Market_Intelligence.py (The heavy one)"""
-        # 1. Get Weights
-        w_json = self._query_one(conn, "SELECT rating_breakdown FROM products WHERE asin = ?", [asin])
-        weights = {5:0, 4:0, 3:0, 2:0, 1:0}
-        if w_json:
-            try:
-                raw_w = json.loads(w_json) if isinstance(w_json, str) else w_json
-                total_w = sum(raw_w.values())
-                if total_w > 0:
-                    weights = {int(k): v / total_w for k, v in raw_w.items()}
-            except: return []
-
-        # 2. Weighted SQL
-        weighted_sql = f"""
-            WITH base AS (
-                SELECT 
-                    COALESCE(am.standard_aspect, rt.aspect) as aspect,
-                    CAST(ROUND(r.rating_score) AS INTEGER) as star,
-                    rt.sentiment
-                FROM review_tags rt
-                JOIN reviews r ON rt.review_id = r.review_id
-                LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect
-                WHERE rt.parent_asin = ?
-            ),
-            aspect_stats AS (
-                SELECT aspect, star,
-                    SUM(CASE WHEN sentiment = 'Positive' THEN 1 ELSE 0 END) * 1.0 / COUNT(*) as pos_rate
-                FROM base GROUP BY 1, 2
-            ),
-            weighted_calc AS (
-                SELECT aspect,
-                    SUM(pos_rate * CASE 
-                        WHEN star = 5 THEN {weights.get(5, 0)}
-                        WHEN star = 4 THEN {weights.get(4, 0)}
-                        WHEN star = 3 THEN {weights.get(3, 0)}
-                        WHEN star = 2 THEN {weights.get(2, 0)}
-                        WHEN star = 1 THEN {weights.get(1, 0)}
-                        ELSE 0 END) as score
-                FROM aspect_stats GROUP BY 1
-            )
-            SELECT aspect, score * 100 as score_pct FROM weighted_calc ORDER BY score ASC LIMIT 15
         """
-        df = self._query_df(conn, weighted_sql, [asin])
-        return df.to_dict(orient='records')
+        Calculates 'Estimated Customer Impact' (Commercial Logic).
+        Extrapolates sample data to real population volume to fix sampling bias.
+        """
+        # 1. Get Real Population Stats
+        p_row = self._query_df(conn, "SELECT real_total_ratings, rating_breakdown FROM products WHERE asin = ?", [asin])
+        if p_row.empty: return []
+        
+        real_total = p_row.iloc[0]['real_total_ratings']
+        if pd.isnull(real_total) or real_total == 0: return []
+        
+        breakdown_json = p_row.iloc[0]['rating_breakdown']
+        real_counts = {5:0, 4:0, 3:0, 2:0, 1:0}
+        
+        try:
+            if breakdown_json:
+                bd = json.loads(breakdown_json) if isinstance(breakdown_json, str) else breakdown_json
+                # bd is usually percentages like {"5": 70, "4": 10...} or counts.
+                # Assuming percentages summing to ~100 or 1.0. Let's normalize.
+                total_bd = sum(bd.values())
+                if total_bd > 0:
+                    for k, v in bd.items():
+                        real_counts[int(k)] = (v / total_bd) * real_total
+        except:
+            return []
+
+        # 2. Get Sample Stats (Mention Rates per Star)
+        # We need: For each aspect, for each star, how many mentions vs total sample size at that star?
+        
+        # Total samples per star (Denominator)
+        sample_counts_df = self._query_df(conn, """
+            SELECT CAST(ROUND(rating_score) AS INTEGER) as star, COUNT(*) as cnt 
+            FROM reviews 
+            WHERE parent_asin = ? 
+            GROUP BY 1
+        """, [asin])
+        sample_counts = {r['star']: r['cnt'] for r in sample_counts_df.to_dict('records')}
+
+        # Aspect mentions per star (Numerator)
+        aspect_df = self._query_df(conn, """
+            SELECT 
+                COALESCE(am.standard_aspect, rt.aspect) as aspect,
+                CAST(ROUND(r.rating_score) AS INTEGER) as star,
+                rt.sentiment,
+                COUNT(*) as cnt
+            FROM review_tags rt
+            JOIN reviews r ON rt.review_id = r.review_id
+            LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect
+            WHERE rt.parent_asin = ?
+            GROUP BY 1, 2, 3
+        """, [asin])
+
+        if aspect_df.empty: return []
+
+        # 3. Calculate Estimated Impact
+        # aspect_impact = {aspect: {'pos': 0, 'neg': 0}}
+        impact_map = {}
+
+        for _, row in aspect_df.iterrows():
+            aspect = row['aspect']
+            star = int(row['star'])
+            sentiment = row['sentiment']
+            count = row['cnt']
+            
+            if star not in sample_counts or sample_counts[star] == 0: continue
+            if star not in real_counts: continue
+
+            # Rate in Sample = Count / Sample_Size_At_Star
+            rate = count / sample_counts[star]
+            
+            # Est. Real Volume = Rate * Real_Population_At_Star
+            est_volume = rate * real_counts[star]
+            
+            if aspect not in impact_map: impact_map[aspect] = {'pos': 0, 'neg': 0}
+            
+            if sentiment == 'Positive':
+                impact_map[aspect]['pos'] += est_volume
+            else:
+                impact_map[aspect]['neg'] += est_volume
+
+        # 4. Format Result
+        results = []
+        for aspect, vals in impact_map.items():
+            net = vals['pos'] - vals['neg']
+            total_vol = vals['pos'] + vals['neg']
+            results.append({
+                "aspect": aspect,
+                "est_positive": int(vals['pos']),
+                "est_negative": int(vals['neg']),
+                "net_impact": int(net),
+                "total_impact_vol": int(total_vol)
+            })
+            
+        # Sort by magnitude of impact (Absolute Net or Total Volume?)
+        # User wants to see what drives 1 star vs 5 star. 
+        # Sort by Net Impact (Most Positive to Most Negative)
+        results.sort(key=lambda x: x['net_impact'], reverse=True)
+        
+        # Take Top 15 (Positive & Negative mix)
+        # To ensure we see both extremes, let's take Top 8 Positive and Top 7 Negative?
+        # Or just sort by Total Volume?
+        # Let's return Top 20 by Total Volume, then UI can sort by Net Impact.
+        results.sort(key=lambda x: x['total_impact_vol'], reverse=True)
+        return results[:20]
 
     def calculate_rating_trend(self, conn, asin):
         sql = """

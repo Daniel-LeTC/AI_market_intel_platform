@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 import streamlit as st
 import streamlit.components.v1 as components
+import pandas as pd
 
 # Add root and current dir to sys.path
 BASE_DIR = Path(__file__).resolve().parent

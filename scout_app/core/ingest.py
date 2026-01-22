@@ -188,6 +188,13 @@ class DataIngester:
 
         if not exprs: return
         
+        # Try to find Variation Count column in source
+        var_col = None
+        for c in df.columns:
+            if c.lower() in ["count variation asins", "total variations", "variation_count"]:
+                var_col = c
+                break
+
         p_df = df.select(exprs).unique(subset=["parent_asin"]).with_columns([
             pl.col("parent_asin").alias("asin"),
             pl.lit(None).cast(pl.Utf8).alias("material"),
@@ -199,14 +206,15 @@ class DataIngester:
             pl.lit(None).cast(pl.Utf8).alias("product_line"),
             pl.lit(None).cast(pl.Utf8).alias("num_pieces"),
             pl.lit(None).cast(pl.Utf8).alias("pack"),
-            pl.lit(0).cast(pl.Int32).alias("variation_count"),
+            (pl.col(var_col).cast(pl.Int32) if var_col else pl.lit(0).cast(pl.Int32)).alias("variation_count"),
             pl.lit(None).alias("specs_json")
         ])
 
         # Ensure ALL required columns for INSERT exist
         required_cols = [
             "title", "brand", "image_url", 
-            "real_average_rating", "real_total_ratings", "rating_breakdown"
+            "real_average_rating", "real_total_ratings", "rating_breakdown",
+            "variation_count"
         ]
         for col in required_cols:
             if col not in p_df.columns:
@@ -219,12 +227,12 @@ class DataIngester:
                 INSERT OR REPLACE INTO products (
                     asin, parent_asin, title, brand, image_url, 
                     real_average_rating, real_total_ratings, rating_breakdown, 
-                    last_updated
+                    variation_count, last_updated
                 )
                 SELECT 
                     asin, parent_asin, title, brand, image_url, 
                     real_average_rating, real_total_ratings, CAST(rating_breakdown AS JSON), 
-                    current_timestamp 
+                    variation_count, current_timestamp 
                 FROM temp_products
             """)
 

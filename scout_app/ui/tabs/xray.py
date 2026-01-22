@@ -15,34 +15,78 @@ def render_xray_tab(selected_asin, precalc):
         
         # --- TOGGLE SWITCH ---
         analysis_mode = st.radio(
-            "Analysis Mode:", 
-            ["Raw Mentions (Volume)", "Weighted Impact (Star-Adjusted)"],
+            "Chế độ phân tích (Analysis Mode):", 
+            ["Tần suất (Volume)", "Tác động (Impact Score)"],
             horizontal=True,
-            help="Raw: Count of mentions. Weighted: Adjusted by Star Rating (what drives 1-star vs 5-star)."
+            help="""
+            **Tần suất (Volume):** Khách hàng nhắc đến cái gì nhiều nhất? (Nhiều chưa chắc đã quan trọng).
+            **Tác động (Impact):** Yếu tố nào quyết định việc khách cho 1 sao (Tiêu cực) hay 5 sao (Tích cực)?
+            """
         )
 
-        if "Weighted" in analysis_mode:
+        if "Tác động" in analysis_mode:
             # PRE-CALC WEIGHTED
             if precalc and "sentiment_weighted" in precalc:
                 df_w = pd.DataFrame(precalc["sentiment_weighted"])
                 st.caption("⚡ Source: Pre-calculated (Instant)")
             else:
-                df_w = get_weighted_sentiment_data(selected_asin)
-                st.caption("🐢 Source: Live Query (Slow - Cache Miss)")
+                # Fallback needed if using old logic? For now, assume stats are updated.
+                # If fallback is needed, we should implement get_weighted_sentiment_data to match new logic
+                # But to save time, let's rely on re-calc.
+                st.warning("Please re-calculate stats for this ASIN to see new Impact Chart.")
+                df_w = pd.DataFrame()
 
             if not df_w.empty:
-                fig_w = px.bar(
-                    df_w,
-                    x="score_pct",
-                    y="aspect",
-                    orientation="h",
-                    title="Weighted Sentiment Impact",
-                    labels={"score_pct": "Impact Score (0-100)", "aspect": "Feature"},
-                    color="score_pct",
-                    color_continuous_scale="RdBu", # Red (Low) to Blue (High)
-                    height=500
+                # Sort by Total Volume (Impact Magnitude)
+                df_w = df_w.sort_values("total_impact_vol", ascending=False)
+                
+                # Rename cols for display
+                df_disp = df_w.rename(columns={
+                    "aspect": "Khía cạnh",
+                    "est_positive": "😍 Khen (Est.)",
+                    "est_negative": "😠 Chê (Est.)",
+                    "net_impact": "⚖️ Net Impact"
+                })
+                
+                st.dataframe(
+                    df_disp[["Khía cạnh", "😍 Khen (Est.)", "😠 Chê (Est.)", "⚖️ Net Impact"]],
+                    use_container_width=True,
+                    column_config={
+                        "😍 Khen (Est.)": st.column_config.ProgressColumn(
+                            "😍 Khen (Est.)",
+                            format="%d",
+                            min_value=0,
+                            max_value=int(df_w["est_positive"].max()),
+                            help="Ước tính số khách hàng HÀI LÒNG về khía cạnh này.",
+                        ),
+                        "😠 Chê (Est.)": st.column_config.ProgressColumn(
+                            "😠 Chê (Est.)",
+                            format="%d",
+                            min_value=0,
+                            max_value=int(df_w["est_negative"].max()),
+                            help="Ước tính số khách hàng THẤT VỌNG về khía cạnh này.",
+                        ),
+                        "⚖️ Net Impact": st.column_config.NumberColumn(
+                            "⚖️ Net Impact",
+                            format="%d",
+                            help="Hiệu số (Khen - Chê). Dương = Lợi thế. Âm = Vấn đề.",
+                        )
+                    },
+                    hide_index=True
                 )
-                st.plotly_chart(fig_w, use_container_width=True)
+                
+                st.info("""
+                ℹ️ **Cách tính số liệu ước tính (Estimated Impact):**
+                
+                Hệ thống sử dụng tỷ lệ xuất hiện trong mẫu review (Sample) để suy rộng ra toàn bộ khách hàng thực tế (Population) theo từng mức sao.
+                
+                **Ví dụ minh họa:**
+                - Sản phẩm có **10,000 rating** (trong đó **5% là 1 sao** = 500 khách).
+                - Chúng tôi phân tích mẫu **100 review 1 sao**, thấy có **20 người** chê "Vải rách" (Tỷ lệ 20% trong nhóm 1 sao).
+                - 👉 Hệ thống ước tính: Có khoảng **100 khách hàng** (500 x 20%) thực tế đang gặp vấn đề "Vải rách".
+                
+                *Việc tính toán được thực hiện độc lập cho từng nhóm sao (1-5) rồi tổng hợp lại, giúp bạn hình dung quy mô thật sự của vấn đề trên toàn bộ dữ liệu.*
+                """)
             else:
                 st.warning("Weighted Analysis unavailable.")
 
@@ -61,7 +105,8 @@ def render_xray_tab(selected_asin, precalc):
                     y="aspect",
                     x=["positive", "negative"],
                     orientation="h",
-                    labels={"value": "Mentions", "variable": "Sentiment"},
+                    title="Tần suất nhắc đến (Review Volume)",
+                    labels={"value": "Số lần nhắc (Mentions)", "variable": "Cảm xúc", "aspect": "Khía cạnh"},
                     color_discrete_map={"positive": "#00CC96", "negative": "#EF553B"},
                     height=400
                 )

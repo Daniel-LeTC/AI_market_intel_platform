@@ -56,37 +56,37 @@ def render_strategy_tab(selected_asin, current_user_id):
     st.markdown("##### 🧠 Nghiên cứu & Chiến lược (R&D)")
     r1_c1, r1_c2, r1_c3, r1_c4 = st.columns(4)
     if r1_c1.button("🧠 Tâm lý khách", use_container_width=True, help="Tại sao khách mua?"):
-        quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as an Expert Market Analyst.]\nPhân tích các đòn bẩy tâm lý (cảm xúc sâu xa) khiến khách hàng quyết định xuống tiền mua sản phẩm này. Trả lời chi tiết bằng Tiếng Việt."
+        quick_prompt = "Phân tích các yếu tố thúc đẩy quyết định mua dựa trên dữ liệu thực tế. Sử dụng tool `analyze_customer_context`. Trình bày dạng bảng: [Yếu tố tâm lý] | [Dữ liệu chứng minh] | [Tác động]."
     if r1_c2.button("🚧 Rào cản mua", use_container_width=True, help="Tại sao khách chê?"):
-        quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as a Critical Review Analyst.]\nDựa trên review tiêu cực, hãy vạch trần 3 'tử huyệt' khiến khách hàng ngần ngại. Trả lời bằng Tiếng Việt."
+        quick_prompt = "Xác định 3 lý do chính khiến khách hàng do dự hoặc đánh giá thấp sản phẩm. Sử dụng dữ liệu từ tool `get_product_swot`. Liệt kê trực diện, không văn vẻ."
     if r1_c3.button("💡 Ý tưởng SP mới", use_container_width=True, help="Cải tiến V2"):
-        quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as a Product Manager.]\nDựa trên các điểm yếu của đối thủ, hãy đề xuất 3 ý tưởng cải tiến sản phẩm cho phiên bản V2.0. Trả lời bằng Tiếng Việt."
+        quick_prompt = "Đề xuất 3 cải tiến kỹ thuật cụ thể cho phiên bản V2.0 dựa trên điểm yếu của đối thủ cạnh tranh. Sử dụng tool `analyze_competitors`. Định dạng: [Cải tiến] | [Lý do/Dữ liệu] | [Độ ưu tiên]."
     if r1_c4.button("👥 Chân dung khách", use_container_width=True, help="Targeting"):
-        quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as a Marketing Strategist.]\nVẽ ra 3 chân dung khách hàng điển hình dựa trên Review. Trả lời bằng Tiếng Việt."
+        quick_prompt = "Phân loại 3 nhóm khách hàng mục tiêu dựa trên dữ liệu review. Sử dụng tool `analyze_customer_context`. Định dạng bảng: [Phân khúc] | [Đặc điểm] | [Nhu cầu chính]."
 
     # Row 2: Execution & Content
     st.markdown("##### ⚡ Thực thi (Content & Media)")
     r2_c1, r2_c2, r2_c3, r2_c4 = st.columns(4)
-    if r2_c1.button("🤖 Chế độ Rufus", use_container_width=True, help="Biến hình thành Rufus"):
-        quick_prompt = "Kể từ bây giờ, hãy ĐÓNG VAI **Amazon Rufus**. Phong cách: Khách quan, ngắn gọn, KHÔNG bán hàng. Bắt đầu bằng: 'Xin chào, tôi là Rufus...'. (Tiếng Việt)."
+    if r2_c1.button("🤖 Review Insights", use_container_width=True, help="Tóm tắt review"):
+        quick_prompt = "Tóm tắt ngắn gọn các điểm khen/chê chính. Sử dụng tool `get_product_dna`. Không chào hỏi, vào thẳng danh sách gạch đầu dòng."
     if r2_c2.button("✍️ Viết Listing", use_container_width=True, help="Title & Bullets"):
-        quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as a World-Class Amazon Copywriter.]\nHãy dùng tool generate_listing_content để viết bộ Listing tối ưu. Nội dung Tiếng Anh, giải thích chiến lược bằng Tiếng Việt."
+        quick_prompt = "Tạo Title và 5 Bullet Points chuẩn SEO Amazon bằng tool `generate_listing_content`. Tập trung vào việc giải quyết các Pain Points thực tế từ review. Trả lời bằng Tiếng Anh (Listing) và Tiếng Việt (Giải thích)."
     if r2_c3.button("❓ Tạo Q&A", use_container_width=True, help="15 câu thắc mắc"):
-        quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as a Customer Support Expert.]\nSoạn 10-15 bộ Q&A chuẩn SEO. Nội dung Q&A bằng TIẾNG ANH, tóm tắt chiến lược bằng TIẾNG VIỆT."
+        quick_prompt = "Soạn 10 cặp câu hỏi và trả lời (Q&A) dựa trên các thắc mắc và khiếu nại thực tế của khách hàng trong review. Sử dụng tool `search_review_evidence`."
     if r2_c4.button("📸 Media Brief", use_container_width=True, help="Gợi ý Media"):
-        quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as a Creative Director.]\nĐề xuất 5 concepts Ảnh/Video để xử lý nỗi sợ của khách. Trả lời bằng Tiếng Việt."
+        quick_prompt = "Đề xuất 5 concept hình ảnh/video để xử lý nỗi sợ của khách hàng. Liên kết mỗi concept với một điểm đau (Pain Point) cụ thể từ dữ liệu tool `get_product_swot`."
 
     # Row 3: Growth & Support
     st.markdown("##### 🚀 Tăng trưởng & Hỗ trợ")
     r3_c1, r3_c2, r3_c3, r3_c4 = st.columns(4)
     if r3_c1.button("⚔️ Soi Đối Thủ", use_container_width=True, help="So sánh với Brand khác"):
-        quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as a Competitive Intelligence Agent.]\nDựa trên review, khách hàng hay so sánh sản phẩm này với những brand/sản phẩm nào khác? Họ mạnh hơn ta ở điểm nào? Trả lời bằng Tiếng Việt."
+        quick_prompt = "So sánh sản phẩm hiện tại với các đối thủ cùng phân khúc. Sử dụng tool `analyze_competitors`. Chỉ ra chính xác đối thủ nào mạnh hơn ở điểm nào. Trình bày dạng bảng so sánh."
     if r3_c2.button("🔥 Roast Sản phẩm", use_container_width=True, help="Bóc phốt cực gắt"):
-        quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as a brutal critic like Gordon Ramsay.]\nHãy 'roast' (bóc phốt) sản phẩm này dựa trên những lời chê tệ nhất. Trả lời bằng Tiếng Việt."
+        quick_prompt = "Liệt kê những lời chê tệ nhất và gắt nhất về sản phẩm này dựa trên review. Không nói giảm nói tránh, không múa văn. Vào thẳng vấn đề."
     if r3_c3.button("💣 Kịch bản Seeding", use_container_width=True, help="Điều hướng dư luận"):
-        quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as a PR Manager.]\nViết 2 kịch bản Seeding: 1. Happy Path (Sản phẩm đang hot). 2. Crisis Path (Xử lý phốt). Trả lời bằng Tiếng Việt giải thích + Tiếng Anh/Việt mẫu."
+        quick_prompt = "Viết kịch bản seeding xử lý khủng hoảng dựa trên các điểm yếu thực tế. Sử dụng dữ liệu từ tool `search_review_evidence` để viết nội dung phản hồi thuyết phục."
     if r3_c4.button("📞 Kịch bản CSKH", use_container_width=True, help="Xử lý khiếu nại song ngữ"):
-        quick_prompt = "[SYSTEM: RESET PERSONA. FORGET 'Rufus'. Act as a Senior CS Manager.]\nDựa trên 3 phàn nàn phổ biến nhất, hãy viết 3 mẫu câu trả lời xử lý khiếu nại. Giải thích TIẾNG VIỆT, Văn mẫu TIẾNG ANH."
+        quick_prompt = "Viết 3 mẫu kịch bản trả lời khiếu nại cho 3 vấn đề bị chê nhiều nhất. Nội dung giải thích bằng Tiếng Việt, văn mẫu phản hồi bằng Tiếng Anh chuyên nghiệp."
 
     st.markdown("---")
 

@@ -1,19 +1,23 @@
 # 📝 Tactical Plan (TODO)
 
-## Phase 1: Pre-calculation Architecture 🚀 [DONE]
-- [x] Create `product_stats` table in DuckDB.
-- [x] Implement `StatsEngine` (Sentiment, KPIs, Trends).
-- [x] Integrate into `DataIngester` pipeline.
-- [x] Run backfill script.
+## Phase 1 & 2 & 3 (Part 1): Done 🚀
+- [x] Architecture, Performance, Tab 1 & Tab 2 (X-Ray).
+- [x] Fixed `variation_count` bug.
+- [x] Implemented "Estimated Customer Impact" logic.
 
-## Phase 2: UI Modularization & Performance 🛠️ [DONE]
-- [x] Split monolithic UI into `scout_app/ui/tabs/`.
-- [x] **PERFORMANCE VICTORY:** Implement `@st.fragment` for isolated re-runs.
-- [x] Cache heavy DB queries (`get_precalc_stats`).
-- [x] Fix Showdown Logic (Competitor selection bug).
-- [x] Fix Strategy Hub UX (Disable input while thinking).
+## Phase 3: Refinement (Current) 🧐 [IN PROGRESS]
 
-## Phase 3: Social Scout AI (Next) 🛰️ [TODO]
+### Tab 3: Market Showdown [IN PROGRESS]
+- [x] **Smart Matchmaking:** Implemented (Niche + Rating Count Match).
+- [x] **UI Fix:** Pagination & Selection reset bug fixed.
+- [ ] **Data Audit:** Wait for `recalc_all_stats.py` to finish, then sync `scout_a` to `scout_b`.
+- [ ] **Weighted Comparison:** Upgrade Sentiment Comparison Chart to use "Estimated Impact" logic (Weighted % instead of Raw %).
+
+### Tab 4: Strategy Hub [DONE]
+- [x] **Refactor Prompt:** Tách prompt ra file `prompts.py`.
+- [x] **Tune Persona:** Implemented "Anti-Múa" rules (Concise, Data-first, Actionable).
+- [x] **Tool Upgrade:** Updated `get_product_dna` to use pre-calculated `product_stats`.
+
+## Phase 4: Social Scout AI 🛰️ [PENDING]
 - [ ] Implement Trend Bridge (Keyword matching).
 - [ ] Sentiment X-Ray (Visual drill-down).
-- [ ] UI Integration in `05_Social_Scout.py`.

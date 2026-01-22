@@ -2,37 +2,27 @@
 
 **Last Updated:** Jan 22, 2026
 **Current Branch:** `fix_rating_distribution`
-**Status:** **PERFORMANCE SOLVED (st.fragment)**
+**Status:** **REFACTORING TAB 3**
 
 ---
 
-## 🗺️ Critical File Map
+## 📂 File Change Log
 
-### 1. UI Components (Optimized)
-- `scout_app/Market_Intelligence.py`: Main Orchestrator.
-- `scout_app/ui/tabs/*.py`: ALL Tabs are now wrapped with `@st.fragment`.
-    - **Outcome:** Interactions inside a tab (Toggle, Chat, Select) ONLY re-run that specific tab. Global app reload is eliminated for local actions.
-- `scout_app/ui/common.py`:
-    - `query_df`: Wrapped with `time_it` (debug).
-    - `get_precalc_stats`: Aggressively cached + Fallback logic (Child -> Parent ASIN).
+### 1. Tab 2: Customer X-Ray (Done)
+- **UI:** Replaced confusing Bar Chart with **Data Table** (Khen/Chê/Net).
+- **Logic:** Implemented **"Estimated Customer Impact"** (Extrapolating Sample -> Real Population).
+- **UX:** Added clear Tooltips with examples.
+- **Data:** Running `recalc_all_stats.py` (Low CPU) to update all 10k products.
 
-### 2. Core Logic
-- `scout_app/core/stats_engine.py`: JSON-based pre-calculation.
-
----
-
-## 📝 Session Log (The Performance Battle)
-
-1.  **Issue:** UI Latency 3-4s per interaction.
-    - *Root Cause 1:* Streamlit Full Rerun for every interaction (Chart toggle re-runs heavy SQL queries).
-    - *Root Cause 2:* Child ASINs causing Cache Miss (Live Query Fallback).
-2.  **Fixes Implemented:**
-    - **`@st.fragment`:** Applied to all Tabs. Isolates execution scope.
-    - **Lazy Loading:** Evidence quotes put into Expander (safe now with Fragment).
-    - **Parent Lookup:** Fixed Cache Miss logic in `common.py`.
-    - **UX:** Disabled Chat Input while AI is thinking.
+### 2. Tab 3: Market Showdown (In Progress)
+- **Problem:** Competitor selection is raw and overwhelming.
+- **Plan:** Implement **"Smart Matchmaking"**:
+    - Auto-suggest competitors based on Niche, Product Line, and Rating Range (+/- 20%).
+    - Show rich metadata (Title, Rating, Image) in selection UI.
 
 ---
 
-## ⏭️ Next Priority
-- **Social Scout AI:** Trend Bridge Implementation.
+## ⏭️ Next Steps
+1.  Implement `get_smart_competitors` in `showdown.py`.
+2.  Redesign Showdown UI (Smart Picks vs Manual Search).
+3.  Audit Tab 4 (AI Prompt).
