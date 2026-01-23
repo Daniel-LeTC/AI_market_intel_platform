@@ -29,13 +29,23 @@
     - Common: Fixed `uuid` import error.
     - Worker: Added `/trigger/ingest` endpoint.
 
-## Phase 5: Social Scout AI (Trend Bridge) 🛰️ [NEXT]
+## Phase 5: Social Scout AI & UI Polish 🛰️ [NEXT]
 
-### 1. Trend Bridge Engine
+### 1. Immediate UX Polish (Priority High)
+- [ ] **Heatmap Revival (Strategy Tab):**
+    - [ ] Restore missing Market Opportunity Heatmap.
+    - [ ] Redesign for non-academic users (Simplified Visuals).
+    - [ ] Explicit Calculation Logic (Tooltip/Legend).
+- [ ] **Showdown Tab Refinement:**
+    - [ ] Fix Legend Text (Sync 5% vs 1% threshold).
+    - [ ] Add Color Coding (Green/Red background) for Winner/Loser columns.
+    - [ ] Clarify "Market" column (Niche Average explanation).
+
+### 2. Trend Bridge Engine (Social Scout)
 - [ ] **Keyword Matching:** Map Amazon Aspects <-> Social Hashtags/Keywords.
 - [ ] **Volume Correlation:** Overlay Social Volume on Amazon Sales Rank/Review Velocity.
 
-### 2. Sentiment X-Ray
+### 3. Sentiment X-Ray
 - [ ] **Social Sentiment:** Adapt `stats_engine` for TikTok/Meta comments.
 - [ ] **Cross-Platform Dashboard:** Unified view of Amazon vs. Social sentiment.
 
