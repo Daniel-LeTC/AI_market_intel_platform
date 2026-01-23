@@ -26,20 +26,42 @@ class AIMiner:
         return duckdb.connect(str(Settings.get_active_db_path()), read_only=read_only)
 
     def get_unmined_reviews(self, limit=200, status='PENDING') -> List[Dict]:
-        """Fetch reviews that need AI analysis. Auto-completes trash (too short)."""
+        """Fetch reviews that need AI analysis. Auto-completes trash (too short) with sentiment injection."""
         conn = self._get_conn()
         
-        # 1. AUTO-COMPLETE TRASH (Length <= 10 or NULL)
-        # This keeps the system clean without wasting money on AI
-        trash_sql = f"""
-            UPDATE reviews 
-            SET mining_status = 'COMPLETED' 
+        # 1. AUTO-COMPLETE TRASH & INJECT SATISFACTION TAGS
+        trash_data = conn.execute(f"""
+            SELECT review_id, parent_asin, rating_score, text 
+            FROM reviews 
             WHERE mining_status = '{status}' 
             AND (text IS NULL OR length(trim(text)) <= 10)
-        """
-        conn.execute(trash_sql)
+        """).fetchall()
         
-        # 2. FETCH QUALIFIED
+        if trash_data:
+            tags_to_inject = []
+            for rid, pasin, score, txt in trash_data:
+                score = score or 3
+                if score >= 4: sent = "Positive"
+                elif score <= 2: sent = "Negative"
+                else: sent = "Neutral"
+                
+                tags_to_inject.append(( 
+                    rid, pasin, "Satisfaction", "general feedback", 
+                    sent, (txt or "N/A")[:100]
+                ))
+            
+            # Batch Insert Tags
+            conn.executemany("""
+                INSERT INTO review_tags (review_id, parent_asin, category, aspect, sentiment, quote)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, tags_to_inject)
+            
+            # Update Status to COMPLETED
+            trash_ids = [t[0] for t in trash_data]
+            self._update_mining_status(trash_ids, "COMPLETED")
+            print(f"🧹 [Miner] Auto-processed {len(trash_ids)} short reviews into Satisfaction tags.")
+
+        # 2. FETCH QUALIFIED FOR AI
         query = f"""
             SELECT review_id, parent_asin, text, rating_score 
             FROM reviews 
@@ -56,7 +78,7 @@ class AIMiner:
         """Optimized prompt for RAW Aspect Extraction."""
         reviews_text = ""
         for r in reviews_chunk:
-            t = r['text'].replace('"', "'").replace('\n', ' ')
+            t = r['text'].replace('"', "'" ).replace('\n', ' ')
             reviews_text += f"ID: {r['review_id']}\nText: {t}\n---\n"
 
         return f"""
@@ -158,47 +180,44 @@ class AIMiner:
         data_to_insert = []
         processed_with_tags = set()
         
-        # 1. Process AI Tags
         if minified_tags:
             for tag in minified_tags:
                 rid = tag.get("id")
                 pasin = asin_map.get(rid)
                 if rid and pasin:
-                    data_to_insert.append((
+                    data_to_insert.append(( 
                         rid, pasin, tag.get("c"), tag.get("a"), 
                         sentiment_map.get(tag.get("s"), "Neutral"), tag.get("q")
                     ))
                     processed_with_tags.add(rid)
 
-        # 2. FALLBACK LOGIC: If a review has no tags but was in the chunk, create a general tag
+        # FALLBACK: If a review has no tags, create a general tag based on score
         for rid in original_ids:
             if rid not in processed_with_tags:
                 pasin = asin_map.get(rid)
                 score = rating_map.get(rid) or 3
-                # Determine sentiment from stars
                 if score >= 4: sent = "Positive"
                 elif score <= 2: sent = "Negative"
                 else: sent = "Neutral"
-                
-                data_to_insert.append((
+                data_to_insert.append(( 
                     rid, pasin, "Satisfaction", "general feedback", 
-                    sent, text_map.get(rid, "N/A")[:100]
+                    sent, (text_map.get(rid, "N/A") or "N/A")[:100]
                 ))
 
         if data_to_insert:
             conn = self._get_conn()
-            # DEDUPLICATION
             id_list = "', '".join(original_ids)
+            # DEDUPLICATION: Delete all old tags for this chunk
             conn.execute(f"DELETE FROM review_tags WHERE review_id IN ('{id_list}')")
             
             conn.executemany("""
                 INSERT INTO review_tags (review_id, parent_asin, category, aspect, sentiment, quote)
                 VALUES (?, ?, ?, ?, ?, ?)
             """, data_to_insert)
-            
-            # --- STATUS UPGRADE ---
-            self._update_mining_status(original_ids, "COMPLETED")
             conn.close()
+            
+        # --- STATUS UPGRADE (ALWAYS COMPLETED AFTER PROCESSING) ---
+        self._update_mining_status(original_ids, "COMPLETED")
 
     def _update_mining_status(self, review_ids: List[str], status: str):
         if not review_ids: return
@@ -208,9 +227,8 @@ class AIMiner:
         conn.close()
 
     def ingest_batch_results(self, jsonl_content: str):
-        """Universal Batch Ingest with Fallback support."""
+        """Universal Batch Ingest."""
         print("⚙️ [Miner-Batch] Ingesting results...")
-        
         conn = self._get_conn(read_only=True)
         reviews_df = conn.execute("SELECT review_id, parent_asin, text, rating_score FROM reviews").df()
         asin_map = dict(zip(reviews_df['review_id'], reviews_df['parent_asin']))
@@ -221,25 +239,20 @@ class AIMiner:
         success_count = 0
         sentiment_map = {"Pos": "Positive", "Neg": "Negative", "Neu": "Neutral"}
 
-        # For Batch, we process line by line (each line is a chunk response)
         for line in jsonl_content.strip().split('\n'):
             try:
                 resp = json.loads(line)
                 if "response" not in resp: continue
-                
                 raw_text = resp['response']['candidates'][0]['content']['parts'][0]['text']
                 raw_text = raw_text.replace('```json', '').replace('```', '').strip()
                 chunk_tags = json.loads(raw_text)
 
-                # Batch fallback is tricky because we don't know the exact original chunk here. 
-                # However, our Live Miner fix covers the most frequent cases. 
-                # For Batch, we will trust AI tags or mark the IDs as COMPLETED.
                 processed_ids = set()
                 data_to_insert = []
                 for tag in chunk_tags:
                     rid, pasin = tag.get("id"), asin_map.get(tag.get("id"))
                     if rid and pasin:
-                        data_to_insert.append((
+                        data_to_insert.append(( 
                             rid, pasin, tag.get("c"), tag.get("a"),
                             sentiment_map.get(tag.get("s"), "Neutral"), tag.get("q")
                         ))

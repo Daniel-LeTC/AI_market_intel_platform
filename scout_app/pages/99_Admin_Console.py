@@ -51,6 +51,40 @@ def get_db_path():
     return str(Settings.get_active_db_path())
 
 
+def get_pipeline_stats():
+    """Fetch high-level metrics for the entire pipeline."""
+    db_p = get_db_path()
+    stats = {}
+    try:
+        with duckdb.connect(db_p, read_only=True) as conn:
+            # 1. Review Queue
+            rev_q = conn.execute("SELECT mining_status, COUNT(*) FROM reviews GROUP BY 1").fetchall()
+            stats['reviews'] = {str(s[0]): s[1] for s in rev_q}
+            
+            # 2. Janitor Debt
+            stats['unmapped_count'] = conn.execute("""
+                SELECT COUNT(DISTINCT rt.aspect)
+                FROM review_tags rt
+                LEFT JOIN aspect_mapping am ON lower(trim(rt.aspect)) = lower(trim(am.raw_aspect))
+                WHERE am.raw_aspect IS NULL
+                AND length(rt.aspect) BETWEEN 2 AND 40
+            """).fetchone()[0]
+            
+            # 3. Recalc Queue
+            recalc_df = conn.execute("""
+                SELECT DISTINCT r.parent_asin 
+                FROM reviews r
+                LEFT JOIN product_stats ps ON r.parent_asin = ps.asin
+                WHERE r.mining_status = 'COMPLETED'
+                AND (ps.last_updated IS NULL OR r.ingested_at > ps.last_updated)
+            """).df()
+            stats['recalc_list'] = recalc_df['parent_asin'].tolist()
+            
+    except Exception as e:
+        st.error(f"Stats Error: {e}")
+    return stats
+
+
 def query_df(sql, params=None):
     try:
         with duckdb.connect(get_db_path(), read_only=True) as conn:
@@ -96,9 +130,60 @@ active_db = os.path.basename(get_db_path())
 st.caption(f"Welcome, **{st.session_state['username']}** | Connected to: `{active_db}`")
 
 # Tabs
-tab_req, tab_scrape, tab_staging, tab_ai, tab_logs = st.tabs(
-    ["📥 User Requests", "🕷️ Scrape Room", "📦 Staging Area", "🧠 AI Operations", "📟 Terminal"]
+tab_dash, tab_req, tab_scrape, tab_staging, tab_ai, tab_logs = st.tabs(
+    ["🚀 Pipeline Dashboard", "📥 User Requests", "🕷️ Scrape Room", "📦 Staging Area", "🧠 AI Operations", "📟 Terminal"]
 )
+
+# --- TAB 0: PIPELINE DASHBOARD ---
+with tab_dash:
+    st.header("Pipeline Health Monitor")
+    pipe = get_pipeline_stats()
+    
+    # 1. High Level Metrics
+    m1, m2, m3 = st.columns(3)
+    with m1:
+        revs = pipe.get('reviews', {})
+        st.metric("Pending Reviews", revs.get('PENDING', 0), help="New reviews waiting for AI")
+        st.metric("Mining in Progress", revs.get('QUEUED', 0), delta_color="off")
+    with m2:
+        st.metric("Janitor Debt", f"{pipe.get('unmapped_count', 0)} aspects", help="Aspects waiting for standardization")
+    with m3:
+        st.metric("Stale Dashboards", len(pipe.get('recalc_list', [])), help="ASINs with new data but old stats")
+
+    # 2. Action Lists
+    c1, c2 = st.columns(2)
+    with c1:
+        st.subheader("🧹 Dirty Aspects (Sample)")
+        if pipe.get('unmapped_count', 0) > 0:
+            df_dirty = query_df("""
+                SELECT aspect, COUNT(*) as mentions 
+                FROM review_tags rt
+                LEFT JOIN aspect_mapping am ON lower(trim(rt.aspect)) = lower(trim(am.raw_aspect))
+                WHERE am.raw_aspect IS NULL AND length(rt.aspect) BETWEEN 2 AND 40
+                GROUP BY 1 ORDER BY 2 DESC LIMIT 10
+            """)
+            st.dataframe(df_dirty, use_container_width=True, hide_index=True)
+            st.info("💡 Go to 'AI Operations' to run Janitor.")
+        else:
+            st.success("All aspects are clean!")
+
+    with c2:
+        st.subheader("📊 Recalc Queue")
+        recalc_list = pipe.get('recalc_list', [])
+        if recalc_list:
+            st.write(f"The following **{len(recalc_list)}** ASINs need a stats refresh:")
+            st.code(", ".join(recalc_list[:20]) + ("..." if len(recalc_list) > 20 else ""), language="text")
+            if st.button("🚀 Trigger Smart Recalc Now", type="primary"):
+                try:
+                    res = requests.post(f"{WORKER_URL}/trigger/recalc", timeout=5)
+                    if res.status_code == 202:
+                        st.toast("Smart Recalc Dispatched!")
+                        time.sleep(1)
+                        st.rerun()
+                except:
+                    st.error("Worker Offline")
+        else:
+            st.success("All dashboards are fresh!")
 
 # --- TAB 0: USER REQUESTS ---
 with tab_req:
