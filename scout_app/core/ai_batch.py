@@ -18,9 +18,11 @@ class AIBatchHandler:
         self.client = genai.Client(api_key=self.api_key)
         self.model = Settings.GEMINI_MODEL
 
-    def submit_batch_job(self, jsonl_path: Path, display_name_suffix: str = "") -> str:
+    def submit_batch_job(self, jsonl_path: Path, display_name_suffix: str = "", model: Optional[str] = None) -> str:
         """Uploads a file and starts a Batch Job."""
         print(f"🚀 [AI-Batch] Uploading {jsonl_path.name}...")
+        
+        target_model = model or self.model
         
         # 1. Upload
         batch_file = self.client.files.upload(
@@ -41,10 +43,10 @@ class AIBatchHandler:
 
         # 3. Create Job
         display_name = f"Scout_{display_name_suffix}_{int(time.time())}"
-        print(f"🚀 [AI-Batch] Creating Job: {display_name}...")
+        print(f"🚀 [AI-Batch] Creating Job: {display_name} using {target_model}...")
         
         job = self.client.batches.create(
-            model=self.model,
+            model=target_model,
             src=batch_file.name,
             config={'display_name': display_name}
         )

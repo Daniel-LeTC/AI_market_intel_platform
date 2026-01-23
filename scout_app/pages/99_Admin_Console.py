@@ -302,36 +302,71 @@ with tab_ai:
             except:
                 st.error("Worker Offline")
 
+    st.divider()
+    st.markdown("#### 📊 Stats Engine (Dashboard Cache)")
+    s_col1, s_col2 = st.columns(2)
+    with s_col1:
+        if st.button("🔥 Global Stats Recalc", help="Recalculate ALL products (Heavy CPU!)"):
+            try:
+                res = requests.post(f"{WORKER_URL}/trigger/recalc", timeout=5)
+                if res.status_code == 202:
+                    st.success("🚀 Global Recalc Dispatched!")
+                else:
+                    st.error("Failed")
+            except:
+                st.error("Worker Offline")
+    with s_col2:
+        target_asin = st.text_input("Target ASIN (Optional)", placeholder="B0...")
+        if st.button("📊 Targeted Recalc"):
+            if not target_asin:
+                st.warning("Please enter an ASIN")
+            else:
+                try:
+                    res = requests.post(f"{WORKER_URL}/trigger/recalc", params={"asin": target_asin}, timeout=5)
+                    if res.status_code == 202:
+                        st.toast(f"Recalc started for {target_asin}")
+                    else:
+                        st.error("Failed")
+                except:
+                    st.error("Worker Offline")
+
 # --- TAB 4: TERMINAL (Safe Command Palette) ---
 with tab_logs:
     st.header("🛠️ Quick Commands")
     st.caption("Execute on-demand commands directly within the worker container.")
 
-    col_cmd, col_btn = st.columns([3, 1])
-    with col_cmd:
-        cmd_choice = st.selectbox(
-            "Select Command:",
+    col_tpl, col_cmd, col_btn = st.columns([1, 2, 1])
+    with col_tpl:
+        template = st.selectbox(
+            "Templates:",
             [
+                "Custom...",
                 "ls -lh staging_data/",
                 f"du -sh scout_app/database/{active_db}",
                 "python manage.py batch-status",
                 "python manage.py batch-collect",
-                "python manage.py batch-submit-miner --limit 5000",
+                "python manage.py batch-submit-miner --limit 1000",
                 "python manage.py batch-submit-janitor",
                 "tail -n 100 scout_app/logs/worker.log",
+                "python manage.py reset"
             ],
         )
+    
+    with col_cmd:
+        # Default to template, but allow editing
+        final_cmd = st.text_input("Command to execute:", value="" if template == "Custom..." else template)
+
     with col_btn:
         st.write("")  # Spacer
         st.write("")  # Spacer
         run_cmd = st.button("▶️ Run Command", type="primary", use_container_width=True)
 
-    # --- NEW: DB DEDUP & VACUUM INTEGRATION ---
+    # --- NEW: DB DEDUP, VACUUM & RESET INTEGRATION ---
     st.markdown("---")
     st.markdown("#### 🧹 Database Maintenance")
-    d_col1, d_col2, d_col3 = st.columns(3)
+    d_col1, d_col2, d_col3, d_col4 = st.columns(4)
     with d_col1:
-        if st.button("🔍 Check Duplicate Stats", use_container_width=True):
+        if st.button("🔍 Check Duplicates", use_container_width=True):
             try:
                 res = requests.get(f"{WORKER_URL}/admin/dedup/stats", timeout=5)
                 if res.status_code == 200:
@@ -352,34 +387,46 @@ with tab_logs:
             except:
                 st.error("Worker Offline")
     with d_col3:
-        if st.button("💨 DB Compaction (Vacuum)", help="Reclaim disk space and optimize performance", use_container_width=True):
+        if st.button("💨 DB Compaction", help="Vacuum active DB", use_container_width=True):
             try:
-                # Use exec_cmd to trigger vacuum via python inline
                 v_cmd = f"python -c 'import duckdb; conn=duckdb.connect(\"scout_app/database/{active_db}\"); conn.execute(\"CHECKPOINT; VACUUM;\"); conn.close()'"
                 res = requests.post(f"{WORKER_URL}/admin/exec_cmd", json={"cmd": v_cmd}, timeout=60)
                 if res.status_code == 200:
-                    st.toast("✅ DB Vacuumed successfully!")
+                    st.toast("✅ DB Vacuumed!")
                 else:
-                    st.error(f"Failed to vacuum: {res.text}")
+                    st.error("Failed to vacuum.")
+            except:
+                st.error("Worker Offline")
+    with d_col4:
+        if st.button("🔄 Reset Stuck Jobs", help="Reset QUEUED to PENDING", use_container_width=True):
+            try:
+                res = requests.post(f"{WORKER_URL}/admin/exec_cmd", json={"cmd": "python manage.py reset"}, timeout=10)
+                if res.status_code == 200:
+                    st.toast("✅ Stuck jobs reset to PENDING!")
+                else:
+                    st.error("Failed to reset.")
             except:
                 st.error("Worker Offline")
 
     # --- RESULT AREA ---
     if run_cmd:
-        st.markdown("#### 📤 Command Output")
-        try:
-            res = requests.post(f"{WORKER_URL}/admin/exec_cmd", json={"cmd": cmd_choice}, timeout=65)
-            if res.status_code == 200:
-                data = res.json()
-                st.success(f"Executed: `{data['cmd']}` (Code: {data['returncode']})")
-                if data["stdout"]:
-                    st.code(data["stdout"], language="bash")
-                if data["stderr"]:
-                    st.error(data["stderr"])
-            else:
-                st.error(f"Error: {res.text}")
-        except Exception as e:
-            st.error(f"Connection Error: {e}")
+        if not final_cmd:
+            st.error("Please enter a command.")
+        else:
+            st.markdown("#### 📤 Command Output")
+            try:
+                res = requests.post(f"{WORKER_URL}/admin/exec_cmd", json={"cmd": final_cmd}, timeout=65)
+                if res.status_code == 200:
+                    data = res.json()
+                    st.success(f"Executed: `{data['cmd']}` (Code: {data['returncode']})")
+                    if data["stdout"]:
+                        st.code(data["stdout"], language="bash")
+                    if data["stderr"]:
+                        st.error(data["stderr"])
+                else:
+                    st.error(f"Error: {res.text}")
+            except Exception as e:
+                st.error(f"Connection Error: {e}")
 
     st.divider()
     st.header("📜 Worker Event History")

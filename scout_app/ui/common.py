@@ -214,7 +214,7 @@ def request_new_asin(asin_input, note="", force_update=False, user_id=None):
     """
     Smart Request Handler V2
     """
-    db_path = get_db_path()
+    db_path = str(Settings.get_active_db_path())
     final_asin = asin_input
     system_note = ""
     is_unknown = False

@@ -75,13 +75,13 @@ def run_live_flow(asins: list, skip_ai: bool = False):
     shutil.move(raw_file, archive_path)
     print(f"📦 [Gatekeeper] Flow completed. Data archived.")
 
-def run_batch_submit_miner():
-    """Submit unmined reviews to Google Batch."""
+def run_batch_submit_miner(limit: int = 10000):
+    """Submit unmined reviews to Google Batch with limit."""
     miner = AIMiner()
-    miner_file = miner.run_batch_prepare(limit=10000)
+    miner_file = miner.prepare_batch_file(limit=limit)
     if miner_file:
         miner_handler = AIBatchHandler(api_key=Settings.GEMINI_MINER_KEY)
-        job_id = miner_handler.submit_batch_job(miner_file, "Miner")
+        job_id = miner_handler.submit_batch_job(miner_file, "Miner", model=miner.MODEL_NAME)
         print(f"✅ Submitted Miner Job: {job_id}")
 
 def run_batch_submit_janitor():
@@ -90,7 +90,7 @@ def run_batch_submit_janitor():
     janitor_file = janitor.run_batch_prepare(limit=5000)
     if janitor_file:
         janitor_handler = AIBatchHandler(api_key=Settings.GEMINI_JANITOR_KEY)
-        job_id = janitor_handler.submit_batch_job(janitor_file, "Janitor")
+        job_id = janitor_handler.submit_batch_job(janitor_file, "Janitor", model=janitor.MODEL_NAME)
         print(f"✅ Submitted Janitor Job: {job_id}")
 
 def run_batch_status():
@@ -184,7 +184,9 @@ def main():
     subparsers.add_parser("pending", help="Scrape Pending ASINs from CSV").add_argument("--limit", type=int, default=5)
     
     # Batch commands split
-    subparsers.add_parser("batch-submit-miner", help="Submit pending reviews to Miner")
+    miner_p = subparsers.add_parser("batch-submit-miner", help="Submit pending reviews to Miner")
+    miner_p.add_argument("--limit", type=int, default=10000)
+    
     subparsers.add_parser("batch-submit-janitor", help="Submit dirty aspects to Janitor")
     
     subparsers.add_parser("batch-collect", help="Collect results from Google Batch")
@@ -208,7 +210,7 @@ def main():
                 run_live_flow(pending["Parent Asin"].to_list())
             else:
                 print("✨ No pending ASINs.")
-    elif args.command == "batch-submit-miner": run_batch_submit_miner()
+    elif args.command == "batch-submit-miner": run_batch_submit_miner(limit=args.limit)
     elif args.command == "batch-submit-janitor": run_batch_submit_janitor()
     elif args.command == "batch-collect": run_batch_collect()
     elif args.command == "batch-status": run_batch_status()

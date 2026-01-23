@@ -143,12 +143,51 @@ def trigger_scrape(req: ScrapeRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(run_scraper_task, asins)
     return {"status": "accepted", "job": "scrape", "target": asins}
 
-@app.post("/trigger/ingest", status_code=202)
-def trigger_ingest(req: IngestRequest, background_tasks: BackgroundTasks):
-    if not os.path.exists(req.file_path):
-        raise HTTPException(status_code=404, detail="File not found")
-    background_tasks.add_task(run_ingest_task, req.file_path)
-    return {"status": "accepted", "job": "ingest", "file": req.file_path}
+def run_recalc_task(asin: str = None):
+    logger.info(f"📊 [Recalc] Starting task (Target: {asin or 'SMART GLOBAL'})...")
+    try:
+        from scout_app.core.stats_engine import StatsEngine
+        from scout_app.core.config import Settings
+        import duckdb
+        db_p = str(Settings.get_active_db_path())
+        engine = StatsEngine(db_path=db_p)
+        
+        if asin:
+            engine.calculate_and_save(asin)
+            logger.info(f"✅ [Recalc] Completed for {asin}")
+        else:
+            # SMART GLOBAL RECALC: Only target ASINs with fresh reviews
+            # Identify ASINs where latest review date > last stats recalc date
+            query = """
+                SELECT DISTINCT r.parent_asin 
+                FROM reviews r
+                LEFT JOIN product_stats ps ON r.parent_asin = ps.asin
+                WHERE r.mining_status = 'COMPLETED'
+                AND (ps.last_updated IS NULL OR r.ingested_at > ps.last_updated)
+            """
+            with duckdb.connect(db_p) as conn:
+                asins_to_calc = [r[0] for r in conn.execute(query).fetchall()]
+            
+            if not asins_to_calc:
+                logger.info("✨ [Recalc] Everything is already up to date.")
+                return
+
+            logger.info(f"📊 [Recalc] Processing {len(asins_to_calc)} ASINs with new data...")
+            for a in asins_to_calc:
+                if a: 
+                    engine.calculate_and_save(a)
+                    # Small sleep to keep CPU cool
+                    import time
+                    time.sleep(0.1)
+            logger.info(f"✅ [Recalc] Smart Global task complete.")
+            
+    except Exception as e:
+        logger.error(f"❌ [Recalc] Failed: {e}")
+
+@app.post("/trigger/recalc", status_code=202)
+def trigger_recalc(background_tasks: BackgroundTasks, asin: str = None):
+    background_tasks.add_task(run_recalc_task, asin)
+    return {"status": "accepted", "job": "recalc", "target": asin or "GLOBAL"}
 
 @app.post("/admin/run_migration_v2")
 def trigger_migration_v2():
@@ -174,7 +213,8 @@ def exec_cmd(req: CommandRequest):
         "python manage.py batch-status", 
         "python manage.py batch-collect",
         "python manage.py batch-submit-miner",
-        "python manage.py batch-submit-janitor"
+        "python manage.py batch-submit-janitor",
+        "python manage.py reset"
     ]
     
     is_safe = any(cmd.startswith(p) for p in allowed_prefixes)

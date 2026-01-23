@@ -26,14 +26,26 @@ class AIMiner:
         return duckdb.connect(str(Settings.get_active_db_path()), read_only=read_only)
 
     def get_unmined_reviews(self, limit=200, status='PENDING') -> List[Dict]:
-        """Fetch reviews that need AI analysis."""
-        conn = self._get_conn(read_only=True)
+        """Fetch reviews that need AI analysis. Auto-completes trash (too short)."""
+        conn = self._get_conn()
+        
+        # 1. AUTO-COMPLETE TRASH (Length <= 10 or NULL)
+        # This keeps the system clean without wasting money on AI
+        trash_sql = f"""
+            UPDATE reviews 
+            SET mining_status = 'COMPLETED' 
+            WHERE mining_status = '{status}' 
+            AND (text IS NULL OR length(trim(text)) <= 10)
+        """
+        conn.execute(trash_sql)
+        
+        # 2. FETCH QUALIFIED
         query = f"""
             SELECT review_id, parent_asin, text 
             FROM reviews 
             WHERE mining_status = '{status}'
             AND text IS NOT NULL
-            AND length(text) > 10
+            AND length(trim(text)) > 10
             LIMIT {limit}
         """
         df = conn.execute(query).df()
@@ -98,7 +110,7 @@ class AIMiner:
                 print(f"💥 [Miner-Live] API Error: {e}. Items remain 'QUEUED'.")
 
     def prepare_batch_file(self, limit=10000) -> Optional[Path]:
-        """Prepare JSONL for Batch API (50% cost savings)."""
+        """Prepare JSONL for Batch API. Supports limit for spending control."""
         reviews = self.get_unmined_reviews(limit=limit, status='PENDING')
         if not reviews:
             print("✨ No pending reviews for Batch.")
