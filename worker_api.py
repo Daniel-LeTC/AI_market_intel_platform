@@ -86,16 +86,36 @@ def run_ingest_task(file_path: str):
     logger.info(f"📥 [Ingest] Starting ingestion for: {file_path}")
     try:
         from pathlib import Path
-        path_obj = Path(file_path)
-        if "staging_data" not in str(path_obj.resolve()):
-            logger.error(f"❌ [Ingest] Security Block: Cannot ingest files outside staging_data.")
+        path_obj = Path(file_path).resolve()
+        path_str = str(path_obj)
+        
+        # Controlled Whitelist: staging_data OR upload_batch_ folders
+        allowed = ["staging_data", "upload_batch_"]
+        is_allowed = any(tag in path_str for tag in allowed)
+        
+        if not is_allowed:
+            logger.error(f"❌ [Ingest] Security Block: Path '{path_str}' is not in an allowed directory.")
             return
+
         ingester = DataIngester()
         result = ingester.ingest_file(path_obj)
         if "error" in result:
             logger.error(f"❌ [Ingest] Failed: {result['error']}")
         else:
-            logger.info(f"✅ [Ingest] Success! Rows: {result.get('inserted_rows')}. ASINs: {result.get('asins_found')}")
+            logger.info(f"✅ [Ingest] Success! Total: {result.get('total_rows')}. New Reviews: {result.get('inserted_rows')}")
+            
+            # --- POST-INGEST MAINTENANCE (Prevent 5GB Bloat) ---
+            try:
+                import duckdb
+                from scout_app.core.config import Settings
+                db_p = str(Settings.get_active_db_path())
+                logger.info(f"🧹 [Ingest] Reclaiming space (Vacuum) on {db_p}...")
+                with duckdb.connect(db_p) as conn:
+                    conn.execute("CHECKPOINT; VACUUM;")
+                logger.info("✨ [Ingest] DB Compaction complete.")
+            except Exception as v_err:
+                logger.warning(f"⚠️ Vacuum warning: {v_err}")
+
     except Exception as e:
         logger.error(f"❌ [Ingest] Critical Error: {e}")
 

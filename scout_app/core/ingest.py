@@ -133,108 +133,151 @@ class DataIngester:
 
         return df.select(target_cols)
 
+    def _flatten_structs(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Recursively flatten Struct columns into flat columns with '/' separator."""
+        has_struct = any(isinstance(dtype, pl.Struct) for dtype in df.dtypes)
+        if not has_struct:
+            return df
+
+        new_cols = []
+        for col_name, dtype in zip(df.columns, df.dtypes):
+            if isinstance(dtype, pl.Struct):
+                # Expand struct fields
+                for field in dtype.fields:
+                    new_cols.append(
+                        pl.col(col_name).struct.field(field.name).alias(f"{col_name}/{field.name}")
+                    )
+            else:
+                new_cols.append(pl.col(col_name))
+        
+        # Recurse until no more structs (for deeply nested like reviewSummary/fiveStar/percentage)
+        df_flat = df.select(new_cols)
+        return self._flatten_structs(df_flat)
+
     def _ingest_products(self, df: pl.DataFrame, conn):
+        """
+        Robustly ingest product metadata for both Parent and Child ASINs.
+        Uses COALESCE to prevent overwriting existing data with NULLs.
+        """
+        # --- NEW: AUTO-FLATTEN FOR JSONL SUPPORT ---
+        df = self._flatten_structs(df)
         df = df.rename({c: c.lower() for c in df.columns})
         
-        # Mapping for basic product info
+        schema_cols = [
+            "asin", "parent_asin", "title", "brand", "image_url", 
+            "real_average_rating", "real_total_ratings", "rating_breakdown", "variation_count"
+        ]
+
+        # 1. PREPARE PARENT METADATA
+        # Mapping for core product info (usually from Parent row in Excel/Scrape)
         mapping = {
-            "asin": "parent_asin", 
+            "asin": "asin",
+            "parentasin": "parent_asin",
             "producttitle": "title", 
             "productoriginalimage": "image_url", 
             "brand": "brand",
             "countratings": "real_total_ratings"
         }
         
-        # Advanced Metadata Extraction
+        # If 'parent_asin' column is missing, assume 'asin' is the parent
+        if "parent_asin" not in df.columns and "asin" in df.columns:
+            df = df.with_columns(pl.col("asin").alias("parent_asin"))
+
         exprs = [pl.col(r).alias(d) for r, d in mapping.items() if r in df.columns]
         
         if "productrating" in df.columns:
-            # Extract "4.5" from "4.5 out of 5 stars"
             exprs.append(
-                pl.col("productrating")
-                .cast(pl.Utf8)
-                .str.extract(r"(\d+\.?\d*)", 1)
-                .cast(pl.Float64)
-                .alias("real_average_rating")
+                pl.col("productrating").cast(pl.Utf8).str.extract(r"(\d+\.?\d*)", 1)
+                .cast(pl.Float64).alias("real_average_rating")
             )
 
-        # Histogram Extraction (rating_breakdown)
+        # Histogram Extraction
         hist_cols = {
-            "reviewsummary/fivestar/percentage": "5",
-            "reviewsummary/fourstar/percentage": "4",
-            "reviewsummary/threestar/percentage": "3",
-            "reviewsummary/twostar/percentage": "2",
+            "reviewsummary/fivestar/percentage": "5", "reviewsummary/fourstar/percentage": "4",
+            "reviewsummary/threestar/percentage": "3", "reviewsummary/twostar/percentage": "2",
             "reviewsummary/onestar/percentage": "1"
         }
-        
-        # Create a JSON string for rating_breakdown
-        hist_exprs = []
-        for col, star in hist_cols.items():
-            if col in df.columns:
-                hist_exprs.append(pl.format('"{}" : {}', pl.lit(star), pl.col(col).fill_null(0)))
-            else:
-                hist_exprs.append(pl.format('"{}" : 0', pl.lit(star)))
+        hist_exprs = [pl.format('"{}" : {}', pl.lit(star), pl.col(col).fill_null(0)) 
+                     for col, star in hist_cols.items() if col in df.columns]
         
         if hist_exprs:
-            # Combine into a JSON string: {"5": 70, "4": 10, ...}
-            # Use concat_str to avoid format string escaping issues
-            # We want: { "5": 70, ... }
             exprs.append(
-                pl.concat_str(
-                    [pl.lit("{"), pl.concat_str(hist_exprs, separator=", "), pl.lit("}")],
-                    separator=""
-                ).alias("rating_breakdown")
+                pl.concat_str([pl.lit("{"), pl.concat_str(hist_exprs, separator=", "), pl.lit("}")])
+                .alias("rating_breakdown")
             )
 
+        # Variation Count
+        var_col = next((c for c in df.columns if c.lower() in ["count variation asins", "total variations", "variation_count"]), None)
+        if var_col: exprs.append(pl.col(var_col).cast(pl.Int32).alias("variation_count"))
+
         if not exprs: return
+
+        # Create cleaned products dataframe (Unique by ASIN, not just Parent)
+        p_df = df.select(exprs).unique(subset=["asin"])
         
-        # Try to find Variation Count column in source
-        var_col = None
-        for c in df.columns:
-            if c.lower() in ["count variation asins", "total variations", "variation_count"]:
-                var_col = c
-                break
-
-        p_df = df.select(exprs).unique(subset=["parent_asin"]).with_columns([
-            pl.col("parent_asin").alias("asin"),
-            pl.lit(None).cast(pl.Utf8).alias("material"),
-            pl.lit(None).cast(pl.Utf8).alias("main_niche"),
-            pl.lit(None).cast(pl.Utf8).alias("target_audience"),
-            pl.lit(None).cast(pl.Utf8).alias("design_type"),
-            pl.lit(None).cast(pl.Utf8).alias("gender"),
-            pl.lit(None).cast(pl.Utf8).alias("size_capacity"),
-            pl.lit(None).cast(pl.Utf8).alias("product_line"),
-            pl.lit(None).cast(pl.Utf8).alias("num_pieces"),
-            pl.lit(None).cast(pl.Utf8).alias("pack"),
-            (pl.col(var_col).cast(pl.Int32) if var_col else pl.lit(0).cast(pl.Int32)).alias("variation_count"),
-            pl.lit(None).alias("specs_json")
-        ])
-
-        # Ensure ALL required columns for INSERT exist
-        required_cols = [
-            "title", "brand", "image_url", 
-            "real_average_rating", "real_total_ratings", "rating_breakdown",
-            "variation_count"
-        ]
-        for col in required_cols:
+        # Add missing columns with CORRECT TYPES to match schema for Parent
+        type_map = {
+            "asin": pl.Utf8, "parent_asin": pl.Utf8, "title": pl.Utf8, "brand": pl.Utf8, "image_url": pl.Utf8,
+            "real_average_rating": pl.Float64, "real_total_ratings": pl.Int32, 
+            "rating_breakdown": pl.Utf8, "variation_count": pl.Int32
+        }
+        for col, dtype in type_map.items():
             if col not in p_df.columns:
-                # Use appropriate type casting if necessary, but DuckDB is lenient with Nulls
-                p_df = p_df.with_columns(pl.lit(None).cast(pl.Utf8).alias(col))
+                p_df = p_df.with_columns(pl.lit(None).cast(dtype).alias(col))
+            else:
+                p_df = p_df.with_columns(pl.col(col).cast(dtype))
         
-        if not p_df.is_empty():
-            conn.register("temp_products", p_df.to_arrow())
-            conn.execute("""
-                INSERT OR REPLACE INTO products (
-                    asin, parent_asin, title, brand, image_url, 
-                    real_average_rating, real_total_ratings, rating_breakdown, 
-                    variation_count, last_updated
-                )
-                SELECT 
-                    asin, parent_asin, title, brand, image_url, 
-                    real_average_rating, real_total_ratings, CAST(rating_breakdown AS JSON), 
-                    variation_count, current_timestamp 
-                FROM temp_products
-            """)
+        p_df = p_df.select(schema_cols)
+
+        # 2. PREPARE CHILD METADATA (From variations)
+        var_id_col = next((c for c in df.columns if c.lower() == "variationid"), None)
+        if var_id_col and "asin" in df.columns:
+            c_df = df.select([
+                pl.col(var_id_col).alias("asin"),
+                pl.col("asin").alias("parent_asin"),
+                pl.col("producttitle").alias("title") if "producttitle" in df.columns else pl.lit(None).cast(pl.Utf8),
+                pl.col("brand").alias("brand") if "brand" in df.columns else pl.lit(None).cast(pl.Utf8),
+            ]).unique(subset=["asin"]).filter(pl.col("asin").is_not_null())
+            
+            for col, dtype in type_map.items():
+                if col not in c_df.columns:
+                    c_df = c_df.with_columns(pl.lit(None).cast(dtype).alias(col))
+                else:
+                    c_df = c_df.with_columns(pl.col(col).cast(dtype))
+            
+            p_df = pl.concat([p_df, c_df.select(schema_cols)]).unique(subset=["asin"])
+
+        if p_df.is_empty(): return
+
+        # 3. SMART UPSERT INTO DUCKDB
+        # We use COALESCE(excluded.col, products.col) to keep old data if new data is NULL
+        conn.register("temp_p", p_df.to_arrow())
+        conn.execute("""
+            INSERT INTO products (
+                asin, parent_asin, title, brand, image_url, 
+                real_average_rating, real_total_ratings, rating_breakdown, 
+                variation_count, last_updated
+            )
+            SELECT 
+                asin, 
+                COALESCE(parent_asin, asin), 
+                title, brand, image_url, 
+                real_average_rating, real_total_ratings, 
+                CAST(rating_breakdown AS JSON), 
+                variation_count, now() as last_updated
+            FROM temp_p
+            ON CONFLICT (asin) DO UPDATE SET
+                parent_asin = COALESCE(CAST(excluded.parent_asin AS VARCHAR), products.parent_asin),
+                title = COALESCE(CAST(excluded.title AS VARCHAR), products.title),
+                brand = COALESCE(CAST(excluded.brand AS VARCHAR), products.brand),
+                image_url = COALESCE(CAST(excluded.image_url AS VARCHAR), products.image_url),
+                real_average_rating = COALESCE(CAST(excluded.real_average_rating AS DOUBLE), products.real_average_rating),
+                real_total_ratings = COALESCE(CAST(excluded.real_total_ratings AS INTEGER), products.real_total_ratings),
+                rating_breakdown = COALESCE(CAST(excluded.rating_breakdown AS JSON), products.rating_breakdown),
+                variation_count = COALESCE(CAST(excluded.variation_count AS INTEGER), products.variation_count),
+                last_updated = now()
+        """)
+
 
     def ingest_file(self, file_path: Path) -> Dict[str, Any]:
         """Blue-Green Ingestion Strategy."""

@@ -7,13 +7,13 @@ from pathlib import Path
 from google import genai
 from google.genai import types
 from .config import Settings
-from .ai_batch import AIBatchHandler
 
 class AIMiner:
+    # Production Backend Model (Jan 2026)
+    MODEL_NAME = "models/gemini-2.5-flash-lite-preview-09-2025"
+
     def __init__(self):
-        self.db_path = str(Settings.DB_PATH)
         self.api_key = Settings.GEMINI_MINER_KEY
-        self.model = Settings.GEMINI_MODEL
         
         if self.api_key:
             self.client = genai.Client(api_key=self.api_key)
@@ -21,12 +21,13 @@ class AIMiner:
             self.client = None
             print("⚠️ Warning: Gemini API Key not set. AI operations will fail.")
 
-    def _get_conn(self):
-        return duckdb.connect(self.db_path)
+    def _get_conn(self, read_only=False):
+        # Use active DB path from Settings (Blue-Green aware)
+        return duckdb.connect(str(Settings.get_active_db_path()), read_only=read_only)
 
     def get_unmined_reviews(self, limit=200, status='PENDING') -> List[Dict]:
-        """Lay reviews chua phân tích."""
-        conn = self._get_conn()
+        """Fetch reviews that need AI analysis."""
+        conn = self._get_conn(read_only=True)
         query = f"""
             SELECT review_id, parent_asin, text 
             FROM reviews 
@@ -40,67 +41,76 @@ class AIMiner:
         return df.to_dict(orient='records')
 
     def _build_prompt(self, reviews_chunk: List[Dict]) -> str:
-        """Gom reviews thành prompt tối ưu token."""
+        """Optimized prompt for RAW Aspect Extraction (Mass Chunking)."""
         reviews_text = ""
         for r in reviews_chunk:
-            # Clean text to avoid breaking JSON structure in prompt
             t = r['text'].replace('"', "'").replace('\n', ' ')
             reviews_text += f"ID: {r['review_id']}\nText: {t}\n---\n"
 
-        prompt = f"""
-        Analyze Amazon reviews to extract product aspects.
+        return f"""
+        Analyze Amazon reviews to extract product aspects. 
+        Focus on RAW aspects (e.g., 'softness', 'color accuracy', 'zipper quality').
+        
         **Categories:** Quality, Design, Size, Material, Price, Service, Functionality, Performance.
         **Output Format:** A Single JSON List of objects. 
-        Each object: {{"id": "review_id", "c": "Category", "a": "Aspect", "s": "Pos/Neg/Neu", "q": "Short Quote"}}. 
+        Each object: {{"id": "review_id", "c": "Category", "a": "Raw Aspect", "s": "Pos/Neg/Neu", "q": "Short Quote"}}. 
         
         **Reviews to process:**
         {reviews_text}
         """
-        return prompt
 
-    def run_live(self, limit=50):
-        """Phân tích ngay lập tức (Real-time)."""
+    def run_live(self, limit=100):
+        """Live mining using 2.5 Flash Lite. Immediate results with locking."""
         if not self.client: return
         
-        reviews = self.get_unmined_reviews(limit=limit)
+        reviews = self.get_unmined_reviews(limit=limit, status='PENDING')
         if not reviews:
-            print("✨ No reviews to mine (Live).")
+            print("✨ No pending reviews for Live Mining.")
             return
 
-        print(f"🧠 [Miner-Live] Processing {len(reviews)} reviews...")
+        review_ids = [r['review_id'] for r in reviews]
         
-        # We can process in smaller chunks even for live to avoid token limits
-        chunk_size = 20
+        # --- LAYER 1: LOCKING (PENDING -> QUEUED) ---
+        print(f"🔒 [Miner-Live] Locking {len(review_ids)} reviews as 'QUEUED'...")
+        self._update_mining_status(review_ids, "QUEUED")
+
+        print(f"🧠 [Miner-Live] Dispatching to AI ({self.MODEL_NAME})...")
+        
+        # We chunk even for live to maximize token efficiency
+        chunk_size = 50 
         for i in range(0, len(reviews), chunk_size):
             chunk = reviews[i:i+chunk_size]
             prompt = self._build_prompt(chunk)
             
             try:
                 response = self.client.models.generate_content(
-                    model=self.model,
+                    model=self.MODEL_NAME,
                     contents=prompt,
                     config=types.GenerateContentConfig(response_mime_type="application/json")
                 )
                 tags = json.loads(response.text)
+                
+                # --- LAYER 2: SAVE & STATUS -> COMPLETED ---
                 self._save_tags_to_db(tags, chunk)
-                print(f"   ✅ Processed chunk of {len(chunk)}")
+                print(f"   ✅ Processed chunk ({len(chunk)} reviews)")
             except Exception as e:
-                print(f"💥 [Miner-Live] Error: {e}")
+                # Keep as 'QUEUED' for safety (avoids leaking money on retry)
+                print(f"💥 [Miner-Live] API Error: {e}. Items remain 'QUEUED'.")
 
-    def run_batch_prepare(self, limit=4000) -> Optional[Path]:
-        """Chuẩn bị file JSONL cho Batch Job (200 reviews/request)."""
-        reviews = self.get_unmined_reviews(limit=limit)
+    def prepare_batch_file(self, limit=10000) -> Optional[Path]:
+        """Prepare JSONL for Batch API (50% cost savings)."""
+        reviews = self.get_unmined_reviews(limit=limit, status='PENDING')
         if not reviews:
-            print("✨ No reviews for Batch.")
+            print("✨ No pending reviews for Batch.")
             return None
 
-        print(f"📦 [Miner-Batch] Preparing {len(reviews)} reviews for Batch Job...")
+        print(f"📦 [Miner-Batch] Preparing {len(reviews)} reviews for Cheap Batch Inference...")
         
         timestamp = int(time.time())
         file_path = Settings.INGEST_STAGING_DIR / f"miner_batch_{timestamp}.jsonl"
         
-        chunk_size = 200
-        review_ids_queued = []
+        chunk_size = 200 
+        review_ids_to_lock = []
         
         with open(file_path, 'w', encoding='utf-8') as f:
             for i in range(0, len(reviews), chunk_size):
@@ -109,7 +119,7 @@ class AIMiner:
                 
                 request_body = {
                     "request": {
-                        "model": self.model,
+                        "model": self.MODEL_NAME,
                         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
                         "generationConfig": {
                             "responseMimeType": "application/json",
@@ -119,56 +129,60 @@ class AIMiner:
                     }
                 }
                 f.write(json.dumps(request_body) + "\n")
-                review_ids_queued.extend([r['review_id'] for r in chunk])
+                review_ids_to_lock.extend([r['review_id'] for r in chunk])
 
-        # Mark as QUEUED in DB
-        self._update_mining_status(review_ids_queued, "QUEUED")
+        # --- LAYER 1: LOCKING (PENDING -> QUEUED) ---
+        self._update_mining_status(review_ids_to_lock, "QUEUED")
+        print(f"✅ Prepared {file_path.name}. Reviews locked as 'QUEUED'.")
         return file_path
 
     def _save_tags_to_db(self, minified_tags: List[Dict], original_chunk: List[Dict]):
-        """Lưu tags và đánh dấu COMPLETED."""
+        """Deduplicate and save extracted tags. Updates status to COMPLETED."""
         if not minified_tags: return
         
         asin_map = {r['review_id']: r['parent_asin'] for r in original_chunk}
         sentiment_map = {"Pos": "Positive", "Neg": "Negative", "Neu": "Neutral"}
         
         data_to_insert = []
+        processed_ids = set()
         for tag in minified_tags:
             rid = tag.get("id")
             pasin = asin_map.get(rid)
             if rid and pasin:
-                data_to_insert.append((
+                # Save as RAW Aspect for Janitor to clean
+                data_to_insert.append(( 
                     rid, pasin, tag.get("c"), tag.get("a"), 
                     sentiment_map.get(tag.get("s"), "Neutral"), tag.get("q")
                 ))
+                processed_ids.add(rid)
 
         if data_to_insert:
             conn = self._get_conn()
+            # DEDUPLICATION: Always wipe old tags for these reviews before re-insert
+            id_list = "', '".join(processed_ids)
+            conn.execute(f"DELETE FROM review_tags WHERE review_id IN ('{id_list}')")
+            
             conn.executemany("""
                 INSERT INTO review_tags (review_id, parent_asin, category, aspect, sentiment, quote)
                 VALUES (?, ?, ?, ?, ?, ?)
             """, data_to_insert)
             
-            # Update status
-            rids = list(set([r[0] for r in data_to_insert]))
-            self._update_mining_status(rids, "COMPLETED")
+            # --- STATUS UPGRADE (QUEUED -> COMPLETED) ---
+            self._update_mining_status(list(processed_ids), "COMPLETED")
             conn.close()
 
     def _update_mining_status(self, review_ids: List[str], status: str):
         if not review_ids: return
         conn = self._get_conn()
-        # DuckDB handles large IN clauses but let's be safe with batches if needed
-        # For simple tool, standard IN is fine for thousands
         id_list = "', '".join(review_ids)
         conn.execute(f"UPDATE reviews SET mining_status = '{status}' WHERE review_id IN ('{id_list}')")
         conn.close()
 
     def ingest_batch_results(self, jsonl_content: str):
-        """Xử lý kết quả từ Batch Job (JSONL rác rưởi của Google)."""
+        """Universal Batch Ingest (Handles DEDUPLICATION)."""
         print("⚙️ [Miner-Batch] Ingesting results...")
         
-        # We need a global mapping for ASINs since results don't have them
-        conn = self._get_conn()
+        conn = self._get_conn(read_only=True)
         reviews_df = conn.execute("SELECT review_id, parent_asin FROM reviews").df()
         asin_map = dict(zip(reviews_df['review_id'], reviews_df['parent_asin']))
         conn.close()
@@ -176,11 +190,9 @@ class AIMiner:
         success_count = 0
         all_tags = []
         all_processed_ids = []
-
-        lines = jsonl_content.strip().split('\n')
         sentiment_map = {"Pos": "Positive", "Neg": "Negative", "Neu": "Neutral"}
 
-        for line in lines:
+        for line in jsonl_content.strip().split('\n'):
             try:
                 resp = json.loads(line)
                 if "response" not in resp: continue
@@ -190,27 +202,29 @@ class AIMiner:
                 chunk_tags = json.loads(raw_text)
 
                 for tag in chunk_tags:
-                    rid = tag.get("id")
-                    pasin = asin_map.get(rid)
+                    rid, pasin = tag.get("id"), asin_map.get(tag.get("id"))
                     if rid and pasin:
-                        all_tags.append((
+                        all_tags.append(( 
                             rid, pasin, tag.get("c"), tag.get("a"),
                             sentiment_map.get(tag.get("s"), "Neutral"), tag.get("q")
                         ))
                         all_processed_ids.append(rid)
                         success_count += 1
-            except Exception as e:
-                print(f"   ⚠️ Line Parse Error: {e}")
+            except: continue
 
         if all_tags:
             conn = self._get_conn()
+            # Deduplicate before batch insert
+            unique_processed = list(set(all_processed_ids))
+            id_list = "', '".join(unique_processed)
+            conn.execute(f"DELETE FROM review_tags WHERE review_id IN ('{id_list}')")
+            
             conn.executemany("""
                 INSERT INTO review_tags (review_id, parent_asin, category, aspect, sentiment, quote)
                 VALUES (?, ?, ?, ?, ?, ?)
             """, all_tags)
             
-            # Mark COMPLETED
-            unique_ids = list(set(all_processed_ids))
-            self._update_mining_status(unique_ids, "COMPLETED")
+            # --- STATUS UPGRADE (QUEUED -> COMPLETED) ---
+            self._update_mining_status(unique_processed, "COMPLETED")
             conn.close()
-            print(f"✅ [Miner-Batch] Successfully processed {success_count} tags.")
+            print(f"✅ [Miner-Batch] Processed {success_count} tags for {len(unique_processed)} reviews.")
