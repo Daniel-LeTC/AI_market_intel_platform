@@ -330,7 +330,11 @@ def render_mass_mode(selected_asin):
     )
 
     if event and event.get("selection", {}).get("rows"):
-        # We don't update state here because it's too late (Sidebar already rendered)
-        # We just trigger a rerun, and the 'Interceptor' at the top of Market_Intelligence will handle it.
-        st.session_state["xray_view_mode_final"] = "📦 Từng sản phẩm"
-        st.rerun()
+        idx = event["selection"]["rows"][0]
+        if idx < len(df_summary):
+            target_asin = df_summary.iloc[idx]['ASIN']
+            # Update Main Selector (Sidebar will pick this up on rerun)
+            st.session_state["main_asin_selector"] = target_asin
+            # Switch back to Single View
+            st.session_state["xray_view_mode_final"] = "📦 Từng sản phẩm"
+            st.rerun()

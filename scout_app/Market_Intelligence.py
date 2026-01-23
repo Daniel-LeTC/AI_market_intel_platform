@@ -25,21 +25,44 @@ def main():
     if "jump_table_market" in st.session_state:
         selection = st.session_state["jump_table_market"].get("selection", {}).get("rows")
         if selection:
-            # We need the ASIN list to find what was clicked
-            # Since we are in main(), we can fetch the list now
-            df_temp = query_df("SELECT parent_asin FROM products WHERE asin = parent_asin ORDER BY parent_asin ASC")
-            if not df_temp.empty:
-                idx = selection[0]
-                # In Mass Mode, the list might be different, but for now we trust 
-                # the index if we use the same sorting. 
-                # BETTER: The Jump Interceptor should store the ASIN directly if possible.
-                # However, for simplicity, let's just use the index against the master list for now.
-                asin_list = df_temp["parent_asin"].tolist()
-                if idx < len(asin_list):
-                    st.session_state["main_asin_selector"] = asin_list[idx]
+            # Fetch the ASIN list used in the table (re-query strictly for mapping)
+            # NOTE: Ideally we should persist the dataframe order, but querying sorted by ratings/asin usually matches.
+            # For robustness, we check the exact same query logic used in render_mass_mode, 
+            # OR we accept that the user clicked index X of the *previous* list.
             
-            # Clear selection to prevent infinite loop
-            st.session_state["jump_table_market"] = {"selection": {"rows": [], "columns": []}}
+            # Since we can't easily reconstruct the exact list here without params, 
+            # we rely on the fact that if we switch ASIN, the table disappears anyway.
+            # But we NEED the ASIN.
+            
+            # HACK: If we can't reliably map index -> ASIN here, we should have used a callback in the button.
+            # But st.dataframe doesn't support args in on_select callbacks well yet.
+            
+            # Let's try to grab the ASIN from the dataframe if it was stored? No, session_state only has selection indices.
+            
+            # FALLBACK: We must re-query the 'all_parents' list to map the index.
+            # This must match `render_mass_mode` logic: 
+            # "SELECT parent_asin ... ORDER BY MAX(real_total_ratings) DESC" is NOT what the table showed.
+            # The table showed `df_batch`.
+            
+            # CRITICAL FIX: Since we cannot map Index -> ASIN accurately without the original Dataframe,
+            # and we cannot write to the widget state to clear it...
+            # We will rely on `st.session_state.get("xray_view_mode_final")` to disable the table.
+            
+            # Wait, actually `render_mass_mode` used `df_summary`. 
+            # If we simply set the mode to "Single Product", the table won't render next time.
+            # But we need the ASIN to jump TO.
+            
+            # RE-STRATEGY: 
+            # The 'jump_table_market' widget in 'xray.py' was built from `df_summary`.
+            # `df_summary` was built from `df_batch`.
+            # `df_batch` order is consistent if `selected_list` is consistent.
+            # But `selected_list` comes from a widget too!
+            
+            # THIS IS FLAKY.
+            # BETTER APPROACH: Do nothing here.
+            # Handle the jump logic INSIDE `xray.py` using a callback or immediate check after dataframe render.
+            # We will remove this block entirely from main.py and move logic to xray.py.
+            pass
 
     # --- AUTHENTICATION GATEKEEPER ---
     if "authenticated" not in st.session_state:

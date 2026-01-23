@@ -12,6 +12,7 @@ declare -A FILES
 FILES=(
     ["scout_app/Market_Intelligence.py"]="scout_ui_prod:/app/scout_app/Market_Intelligence.py"
     ["scout_app/ui/common.py"]="scout_ui_prod:/app/scout_app/ui/common.py"
+    ["scout_app/ui/tabs/xray.py"]="scout_ui_prod:/app/scout_app/ui/tabs/xray.py"
     ["worker_api.py"]="scout_worker_prod:/app/worker_api.py"
 )
 
@@ -50,9 +51,7 @@ echo "🔄 Reloading Components..."
 ssh $SSH_OPT $VM_USER@$VM_IP "docker exec scout_ui_prod touch /app/scout_app/Market_Intelligence.py"
 echo "✅ UI Reloaded (Hot)"
 
-# Worker: Uvicorn needs restart or HUP signal (if reload is on). 
-# Prod uvicorn usually doesn't have --reload. So we MUST restart container.
-# BUT, restart is fast.
+# Worker: Restart needed for code changes
 ssh $SSH_OPT $VM_USER@$VM_IP "docker restart scout_worker_prod"
 echo "✅ Worker Restarted"
 
