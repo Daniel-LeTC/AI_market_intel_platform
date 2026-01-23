@@ -214,9 +214,10 @@ def main():
     elif args.command == "batch-status": run_batch_status()
     elif args.command == "batch-cancel": run_batch_cancel(args.job_id)
     elif args.command == "reset":
-        conn = duckdb.connect(str(Settings.DB_PATH))
+        db_path = str(Settings.get_active_db_path())
+        conn = duckdb.connect(db_path)
         conn.execute("UPDATE reviews SET mining_status = 'PENDING' WHERE mining_status = 'QUEUED'")
-        print("✅ Reset all QUEUED reviews to PENDING.")
+        print(f"✅ Reset all QUEUED reviews to PENDING on {db_path}.")
         conn.close()
     else: parser.print_help()
 

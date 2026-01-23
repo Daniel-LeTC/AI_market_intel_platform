@@ -149,6 +149,7 @@ else:
         "Select Product (ASIN)",
         df_asins["parent_asin"].tolist(),
         format_func=lambda x: f"{x} (⭐{df_asins[df_asins['parent_asin'] == x]['avg_rating'].values[0]})",
+        key="main_asin_selector"
     )
 
     if selected_asin:

@@ -142,96 +142,122 @@ def render_showdown_tab(selected_asin):
         
         st.markdown("---")
 
-        # --- SECTION 1: SHARED FEATURES (WEIGHTED %) ---
-        from scout_app.ui.common import get_precalc_stats
+        # --- SECTION 1: SHARED FEATURES (WEIGHTED MATRIX) ---
+        from scout_app.ui.common import get_precalc_stats, get_niche_benchmark
         
-        st.markdown("#### 🤝 Shared Features Face-off (Weighted Satisfaction)")
+        st.markdown("#### 🤝 Shared Features Face-off (Battle Matrix)")
         
         stats_me = get_precalc_stats(selected_asin)
         stats_them = get_precalc_stats(challenger_asin)
         
+        niche = my_row.get('main_niche')
+        benchmark = get_niche_benchmark(niche)
+        
         if stats_me and stats_them:
-            # Prepare DataFrames
             df_me_raw = pd.DataFrame(stats_me.get("sentiment_weighted", []))
             df_them_raw = pd.DataFrame(stats_them.get("sentiment_weighted", []))
             
             if not df_me_raw.empty and not df_them_raw.empty:
-                # Calculate Weighted % Positive
-                # Weighted % = est_positive / (est_positive + est_negative)
-                df_me_raw["pos_pct"] = (df_me_raw["est_positive"] / (df_me_raw["est_positive"] + df_me_raw["est_negative"] + 1e-9)) * 100
-                df_them_raw["pos_pct"] = (df_them_raw["est_positive"] / (df_them_raw["est_positive"] + df_them_raw["est_negative"] + 1e-9)) * 100
+                # Calculate Satisfaction % and Volume
+                df_me_raw["Me_Sat"] = (df_me_raw["est_positive"] / (df_me_raw["est_positive"] + df_me_raw["est_negative"] + 1e-9)) * 100
+                df_them_raw["Them_Sat"] = (df_them_raw["est_positive"] / (df_them_raw["est_positive"] + df_them_raw["est_negative"] + 1e-9)) * 100
                 
-                # Filter cols and rename
-                df_me = df_me_raw[["aspect", "pos_pct"]].rename(columns={"pos_pct": f"Me ({selected_asin})"})
-                df_them = df_them_raw[["aspect", "pos_pct"]].rename(columns={"pos_pct": f"Them ({challenger_asin})"})
+                # Align data
+                m1 = df_me_raw[["aspect", "Me_Sat", "total_impact_vol"]].rename(columns={"total_impact_vol": "Me_Vol"})
+                m2 = df_them_raw[["aspect", "Them_Sat", "total_impact_vol"]].rename(columns={"total_impact_vol": "Them_Vol"})
                 
-                df_battle = pd.merge(df_me, df_them, on="aspect", how="inner")
+                df_battle = pd.merge(m1, m2, on="aspect", how="inner")
+                
+                # Ensure Market_Avg column exists even if benchmark is None
+                if benchmark:
+                    df_bench = pd.DataFrame(list(benchmark.items()), columns=["aspect", "Market_Avg"])
+                    df_battle = pd.merge(df_battle, df_bench, on="aspect", how="left")
+                else:
+                    df_battle["Market_Avg"] = pd.NA
                 
                 if not df_battle.empty:
-                    df_plot = df_battle.melt(id_vars="aspect", var_name="Product", value_name="Positive %")
+                    # Logic: Who wins?
+                    def determine_winner(row):
+                        diff = row['Me_Sat'] - row['Them_Sat']
+                        if abs(diff) < 1: return "⚪ Tie"
+                        return "🔵 Bạn" if diff > 0 else "🔴 Đối thủ"
+
+                    df_battle["Winner"] = df_battle.apply(determine_winner, axis=1)
                     
-                    chart_height = max(400, len(df_battle) * 40)
-                    fig_battle = px.bar(
-                        df_plot,
-                        x="Positive %",
-                        y="aspect",
-                        color="Product",
-                        barmode="group",
-                        height=chart_height,
-                        text_auto=".0f",
-                        color_discrete_sequence=["#00CC96", "#FF8C00"],
-                        title="Hài lòng ước tính: Bạn vs. Đối thủ (%)",
-                        labels={"Positive %": "Hài lòng (%)", "aspect": "Khía cạnh"}
+                    # Formatting for display
+                    df_disp = df_battle.copy()
+                    df_disp["Me_Sat"] = df_disp["Me_Sat"].map(lambda x: f"{x:.0f}%")
+                    df_disp["Them_Sat"] = df_disp["Them_Sat"].map(lambda x: f"{x:.0f}%")
+                    df_disp["Market_Avg"] = df_disp["Market_Avg"].map(lambda x: f"{x:.0f}%" if pd.notnull(x) else "N/A")
+                    
+                    # Column renaming for UI
+                    df_disp = df_disp.rename(columns={
+                        "aspect": "Feature",
+                        "Me_Sat": "Bạn",
+                        "Them_Sat": "Đối thủ",
+                        "Market_Avg": "Thị trường",
+                        "Me_Vol": "Lượt nhắc (Bạn)",
+                        "Them_Vol": "Lượt nhắc (ĐT)"
+                    })
+
+                    st.dataframe(
+                        df_disp[["Feature", "Bạn", "Đối thủ", "Winner", "Thị trường", "Lượt nhắc (Bạn)", "Lượt nhắc (ĐT)"]],
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "Bạn": st.column_config.TextColumn(help="Tỉ lệ hài lòng của bạn"),
+                            "Đối thủ": st.column_config.TextColumn(help="Tỉ lệ hài lòng của đối thủ"),
+                            "Winner": st.column_config.TextColumn(help="Thằng nào đang làm tốt hơn ở khía cạnh này"),
+                            "Lượt nhắc (Bạn)": st.column_config.NumberColumn(format="%d", help="Số người quan tâm/nhắc tới ở phía bạn"),
+                        }
                     )
-                    st.plotly_chart(fig_battle, use_container_width=True)
-                    st.caption("ℹ️ **Giải thích:** Tỷ lệ hài lòng được chuẩn hóa dựa trên phân bổ sao thực tế của cả 2 sản phẩm.")
-
-                    st.markdown("---")
-
-                    # --- SECTION 2: UNIQUE FEATURES ---
-                    st.markdown("#### 💎 Unique/Exclusive Features")
-                    c_uniq1, c_uniq2 = st.columns(2)
-                    
-                    aspects_me = set(df_me_raw["aspect"])
-                    aspects_them = set(df_them_raw["aspect"])
-                    
-                    unique_me_list = list(aspects_me - aspects_them)
-                    unique_them_list = list(aspects_them - aspects_me)
-
-                    def render_unique_table(asin, aspect_list, df_source, key_prefix):
-                        if not aspect_list:
-                            st.info("No unique features detected.")
-                            return
-                        
-                        df_u = df_source[df_source["aspect"].isin(aspect_list)].copy()
-                        df_u["Satisfaction"] = (df_u["est_positive"] / (df_u["est_positive"] + df_u["est_negative"] + 1e-9) * 100).map(lambda x: f"{x:.0f}%")
-                        
-                        # Pagination if too many unique features
-                        rows_per_page = 10
-                        if len(df_u) > rows_per_page:
-                            t_pages = (len(df_u) + rows_per_page - 1) // rows_per_page
-                            pg = st.number_input(f"Page ({key_prefix})", 1, t_pages, 1, key=f"pg_u_{key_prefix}_{selected_asin}")
-                            start = (pg-1)*rows_per_page
-                            df_show = df_u.iloc[start : start+rows_per_page]
-                        else:
-                            df_show = df_u
-
-                        st.dataframe(df_show[["aspect", "Satisfaction"]].rename(columns={"aspect": "Unique Feature"}), hide_index=True, use_container_width=True)
-
-                    with c_uniq1:
-                        st.subheader(f"Only in {selected_asin}")
-                        render_unique_table(selected_asin, unique_me_list, df_me_raw, "me")
-                    
-                    with c_uniq2:
-                        st.subheader(f"Only in {challenger_asin}")
-                        render_unique_table(challenger_asin, unique_them_list, df_them_raw, "them")
-
+                    st.caption(f"ℹ️ **Ghi chú:** Người thắng là bên có tỷ lệ hài lòng cao hơn ít nhất 5%. Nếu lượt nhắc quá thấp, kết quả chỉ mang tính tham khảo.")
                 else:
                     st.info("No shared features found in analysis data.")
             else:
                 st.warning("Insufficient data for detailed comparison.")
         else:
             st.info("Stats not yet fully calculated for both products.")
+
+        st.markdown("---")
+
+        # --- SECTION 2: UNIQUE FEATURES ---
+        st.markdown("#### 💎 Unique/Exclusive Features")
+        c_uniq1, c_uniq2 = st.columns(2)
+        
+        aspects_me = set(df_me_raw["aspect"])
+        aspects_them = set(df_them_raw["aspect"])
+        
+        unique_me_list = list(aspects_me - aspects_them)
+        unique_them_list = list(aspects_them - aspects_me)
+
+        def render_unique_table(asin, aspect_list, df_source, key_prefix):
+            if not aspect_list:
+                st.info("No unique features detected.")
+                return
+            
+            df_u = df_source[df_source["aspect"].isin(aspect_list)].copy()
+            df_u["Satisfaction"] = (df_u["est_positive"] / (df_u["est_positive"] + df_u["est_negative"] + 1e-9) * 100).map(lambda x: f"{x:.0f}%")
+            
+            # Pagination if too many unique features
+            rows_per_page = 10
+            if len(df_u) > rows_per_page:
+                t_pages = (len(df_u) + rows_per_page - 1) // rows_per_page
+                pg = st.number_input(f"Page ({key_prefix})", 1, t_pages, 1, key=f"pg_u_{key_prefix}_{selected_asin}")
+                start = (pg-1)*rows_per_page
+                df_show = df_u.iloc[start : start+rows_per_page]
+            else:
+                df_show = df_u
+
+            st.dataframe(df_show[["aspect", "Satisfaction"]].rename(columns={"aspect": "Unique Feature"}), hide_index=True, use_container_width=True)
+
+        with c_uniq1:
+            st.subheader(f"Only in {selected_asin}")
+            render_unique_table(selected_asin, unique_me_list, df_me_raw, "me")
+        
+        with c_uniq2:
+            st.subheader(f"Only in {challenger_asin}")
+            render_unique_table(challenger_asin, unique_them_list, df_them_raw, "them")
 
         st.markdown("---")
         

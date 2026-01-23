@@ -169,6 +169,47 @@ def get_evidence_data(asin: str):
     """
     return query_df(ev_query, [asin])
 
+@st.cache_data(ttl=3600)
+def get_niche_benchmark(niche: str):
+    """Calculate average satisfaction % per aspect for an entire niche."""
+    if not niche or niche in ["None", "Non-defined"]:
+        return None
+
+    sql = """
+        SELECT metrics_json 
+        FROM product_stats ps
+        JOIN products p ON ps.asin = p.asin
+        WHERE p.main_niche = ?
+    """
+    results = query_df(sql, [niche])
+    if results.empty:
+        return None
+
+    import json
+    aspect_totals = {}  # {aspect: {'pos': 0, 'neg': 0}}
+
+    for _, row in results.iterrows():
+        try:
+            m = json.loads(row["metrics_json"]) if isinstance(row["metrics_json"], str) else row["metrics_json"]
+            for item in m.get("sentiment_weighted", []):
+                asp = item["aspect"]
+                if asp not in aspect_totals:
+                    aspect_totals[asp] = {"pos": 0, "neg": 0}
+                aspect_totals[asp]["pos"] += item["est_positive"]
+                aspect_totals[asp]["neg"] += item["est_negative"]
+        except:
+            continue
+
+    # Calculate %
+    benchmark = {}
+    for asp, vals in aspect_totals.items():
+        total = vals["pos"] + vals["neg"]
+        if total > 50:  # Only include aspects with significant volume across niche
+            benchmark[asp] = (vals["pos"] / total) * 100
+
+    return benchmark
+
+
 def request_new_asin(asin_input, note="", force_update=False, user_id=None):
     """
     Smart Request Handler V2

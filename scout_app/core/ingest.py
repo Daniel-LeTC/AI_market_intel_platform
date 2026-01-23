@@ -66,6 +66,11 @@ class DataIngester:
                         quote VARCHAR,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
+                    CREATE TABLE IF NOT EXISTS product_stats (
+                        asin VARCHAR PRIMARY KEY,
+                        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        metrics_json JSON
+                    );
                     CREATE TABLE IF NOT EXISTS aspect_mapping (
                         raw_aspect TEXT PRIMARY KEY,
                         standard_aspect TEXT,

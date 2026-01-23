@@ -1,45 +1,40 @@
-# 🕵️ RnD Scout UI - The Detective Agent
+# 🕵️ Market Intelligence Dashboard - UI Guide
 
-Welcome to the frontend of **RnD Scout**. This app provides a visual interface to explore Amazon competitor data and chat with a specialized AI Analyst.
-
----
-
-## 🎨 Features
-
-### 1. Home Dashboard 🏠
-- **Product DNA:** High-level specs (Material, Niche, Brand) extracted from R&D sheets.
-- **AI Intelligence:** Heatmap of sentiments and top pain points based on thousands of reviews.
-- **Evidence Board:** Direct citations (Quotes) from customers, filtered by aspect and sentiment.
-
-### 2. The Arena (Battle Mode) ⚔️
-- Side-by-side comparison of two ASINs.
-- **Shared Features:** See who wins on common attributes (e.g., Softness).
-- **Exclusive Features:** Identify unique selling points (USPs) or unique flaws.
-
-### 3. AI Detective V4.4 🕵️‍♂️
-An agentic chat interface that doesn't just talk, but **acts**.
-- **Context Awareness:** Remembers the last ASIN discussed.
-- **Evidence Search:** Can find specific quotes using synonyms (Vietnamese/English).
-- **Market Scout:** Can recommend "better" products from the same niche based on sentiment scores.
-- **Variation Intel:** Understands the complexity of color/size combinations.
+Welcome to the frontend of the **Bright Scraper Tool**. This dashboard is designed for R&D, Content, and Growth teams to extract actionable insights from competitors.
 
 ---
 
-## 🚀 How to Run
+## 🎨 Dashboard Features
 
-```bash
-uv run streamlit run scout_app/Market_Intelligence.py
-```
+### 1. Executive Summary (Tab 1)
+- **Product DNA:** Real-time metadata (Brand, Material, Variation Counts) synced from DB.
+- **KPI Cards:** High-level satisfaction metrics and review volume.
 
-### 💡 Tips for 'The Detective'
-- Ask: *"What are the top 3 complaints for this product?"*
-- Ask: *"Is there anything better in the same category but with better durability?"*
-- Ask: *"Does it have many colors? List the most popular ones."*
-- Ask: *"Show me evidence of people complaining about holes after washing."*
+### 2. Customer X-Ray (Tab 2)
+- **Impact Mode:** See which product aspects (Softness, Value, etc.) are driving satisfaction or pain.
+- **🔥 Mass Analysis:** A Market Sentiment Heatmap for the Top 50 competitors. 
+- **Quick Jump:** Click any ASIN in the detail table to switch context instantly.
+
+### 3. Market Showdown (Tab 3) ⚔️
+- **Battle Matrix:** Direct side-by-side comparison with a "Market Average" benchmark.
+- **1% Sensitivity:** Highlighting even minor satisfaction gaps that matter at Amazon's scale.
+
+### 4. Strategy Hub (Tab 4) 🕵️‍♂️
+- **Detective Agent V4.4:** Chat with an AI analyst powered by **Gemini 3 Flash**.
+- **Evidence Search:** Ask the agent to find specific quotes or summarize competitor flaws.
+
+---
+
+## 🛡️ Admin Console (Page 99)
+For power users and data managers:
+- **Hot Scrape:** Input ASINs to trigger Apify scraping immediately.
+- **Staging Manager:** Review downloaded files before committing them to the database.
+- **AI Controls:** Manually trigger the "Janitor" to clean up or unify product aspects.
+- **💨 DB Vacuum:** Reclaim space and optimize performance with a single click.
 
 ---
 
 ## ⚙️ Technical Notes
-- **Database:** Connects to `scout.duckdb` in **Read-Only** mode to allow parallel background processing.
-- **AI Model:** Powered by `gemini-2.5-flash-lite`.
-- **Latency:** SQL queries are indexed for sub-second response on datasets up to 100k+ tags.
+- **Active DB:** The app automatically reads from the active Blue-Green database (`scout_a` or `scout_b`).
+- **Real-time Sync:** All AI extractions and metadata updates reflect instantly on the UI without restarts.
+- **Access Control:** Role-based access (ADMIN vs USER) ensures data safety.

@@ -1,17 +1,24 @@
 # 📝 Tactical Plan (TODO)
 
-## Phase 3: Polish & Maintenance 🛠️ [IN PROGRESS]
-- [ ] **Admin Console Integration:**
-    - [ ] Thêm nút "Fix Missing Variations" (Chạy `fix_variation_counts.py` từ UI).
-    - [ ] Thêm nút "Full Stats Recalc" (Chạy `recalc_all_stats.py` từ UI có thanh Progress).
-    - [ ] Thêm nút "Sync Blue-Green" (Copy A sang B hoặc ngược lại).
-- [ ] **Tab 3 Sentiment Upgrade:** Chuyển Chart so sánh đối thủ sang dùng Weighted % (Estimated Impact logic) để công bằng hơn.
+## Phase 3: Infrastructure Refactoring & Cleanup 🛠️ [COMPLETE]
 
-## Phase 4: Social Scout AI 🛰️ [PENDING]
-- [ ] **Trend Bridge:** Keyword matching giữa reviews và TikTok/Meta trends.
-- [ ] **Sentiment X-Ray:** Deep-dive vào cảm xúc trên social media.
-- [ ] **UI Integration:** Hoàn thiện Dashboard Social Scout.
+### 1. Core Fortification
+- [x] **Universal Ingest:** Handles Child ASINs, JSONL flattening, and Smart Upsert. (Done)
+- [x] **Money-Safe Miner:** Pre-locking and Deduplication verified. (Done)
+- [x] **Precise Janitor:** RAG Shield and Auto-trigger verified. (Done)
+- [x] **Blue-Green Sync:** `manage.py` and Admin Console synchronized. (Done)
 
-## Phase 5: Demo & Merge 🚀 [READY]
-- [x] Stress Test AI (Total War Test - PASSED).
-- [ ] Merge `fix_rating_distribution` -> `ui-refactor`.
+### 2. Admin Console & Housekeeping
+- [x] **Archive Legacy Files:** Cleaned up `scripts/` and `upload_batch_*`. (Done)
+- [x] **DB Maintenance UI:** Added Vacuum/Compaction button to Admin Console. (Done)
+- [ ] **Background Progress UI:** Add status indicators for long-running jobs.
+
+## Phase 4: Social Scout AI & Polish 🛰️ [NEXT]
+
+### 1. Trend Bridge
+- [ ] Implement Keyword Matching between Amazon Sentiment and Social Trends.
+- [ ] "Sentiment X-Ray" for TikTok/Meta comments.
+
+### 2. Deployment Prep
+- [ ] **Final DB Purge:** Delete `scout_fresh.duckdb` and Lab clones before Monday.
+- [ ] GCP VM Deployment config audit.

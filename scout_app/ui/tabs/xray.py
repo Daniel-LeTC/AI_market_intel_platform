@@ -20,6 +20,20 @@ def render_xray_tab(selected_asin):
     Renders Tab 2: Customer X-Ray (Sentiment, Ratings, Evidence)
     """
     precalc = get_precalc_stats(selected_asin)
+    
+    # --- MODE SELECTION ---
+    view_mode = st.radio(
+        "Chế độ hiển thị (Display Mode):",
+        ["📦 Từng sản phẩm", "🔥 So sánh thị trường (Top 50)"],
+        horizontal=True,
+        help="So sánh sản phẩm hiện tại hoặc xem bức tranh toàn cảnh 50 đối thủ hàng đầu.",
+        key=f"xray_view_mode_{selected_asin}"
+    )
+
+    if "thị trường" in view_mode:
+        render_mass_mode(selected_asin)
+        return
+
     c1, c2 = st.columns([2, 1])
     with c1:
         st.subheader("📊 Aspect Sentiment Analysis")
@@ -202,3 +216,120 @@ def render_xray_tab(selected_asin):
             )
         else:
             st.info("No detailed quotes available.")
+
+
+def render_mass_mode(selected_asin):
+    st.subheader("🔥 Market Sentiment Heatmap (Mass Mode)")
+
+    # --- 1. SELECTION LOGIC ---
+    base_info = query_df("SELECT brand, title, product_line, real_total_ratings FROM products WHERE asin = ?", [selected_asin])
+    my_line = base_info.iloc[0]['product_line'] if not base_info.empty else None
+    my_ratings = base_info.iloc[0]['real_total_ratings'] or 0
+
+    # Get all potential candidates with ROBUST BRAND fetching
+    all_parents = query_df("""
+        SELECT parent_asin as asin, MAX(brand) as brand, ANY_VALUE(title) as title 
+        FROM products 
+        GROUP BY 1 
+        ORDER BY MAX(real_total_ratings) DESC
+    """)
+    parent_list = all_parents['asin'].tolist()
+    parent_map = all_parents.set_index('asin')['brand'].to_dict()
+
+    line_filter = f"AND product_line = '{my_line}'" if my_line and my_line != 'None' else ""
+    auto_candidates = query_df(f"""
+        SELECT asin FROM products 
+        WHERE asin != ? AND asin = parent_asin {line_filter}
+        ORDER BY ABS(real_total_ratings - {my_ratings}) ASC LIMIT 15
+    """, [selected_asin])['asin'].tolist()
+
+    st.markdown("##### 🛠️ Tùy chỉnh danh sách so sánh")
+    selected_list = st.multiselect(
+        "Chọn các ASIN đối thủ để đưa vào bản đồ nhiệt:",
+        options=parent_list,
+        default=[selected_asin] + auto_candidates,
+        format_func=lambda x: f"{x} - {str(parent_map.get(x, 'Unknown Brand'))[:15]}...",
+        key=f"mass_sel_list_v3_{selected_asin}"
+    )
+
+    if len(selected_list) < 2:
+        st.info("Vui lòng chọn ít nhất 2 sản phẩm để so sánh.")
+        return
+
+    # --- 2. FETCH DATA IN BATCH ---
+    sql = """
+        SELECT p.asin, COALESCE(p.brand, 'Unknown') as brand, p.title, ps.metrics_json, p.real_total_ratings 
+        FROM products p 
+        JOIN product_stats ps ON p.asin = ps.asin 
+        WHERE p.asin IN ({})
+    """.format(','.join(['?']*len(selected_list)))
+    df_batch = query_df(sql, selected_list)
+
+    # --- 3. PROCESS HEATMAP DATA ---
+    import json
+    heatmap_data = []
+    
+    for _, row in df_batch.iterrows():
+        try:
+            m = json.loads(row["metrics_json"]) if isinstance(row["metrics_json"], str) else row["metrics_json"]
+            brand_clean = row['brand'] if row['brand'] and row['brand'] != 'None' else 'Unknown'
+            label = f"{brand_clean[:10]} ({row['asin']})"
+            
+            for item in m.get("sentiment_weighted", []):
+                score = (item["est_positive"] / (item["est_positive"] + item["est_negative"] + 1e-9)) * 100
+                heatmap_data.append({
+                    "Sản phẩm": label,
+                    "ASIN": row['asin'],
+                    "Khía cạnh": item["aspect"],
+                    "Hài lòng (%)": score
+                })
+        except: continue
+
+    if not heatmap_data:
+        st.warning("Dữ liệu cảm xúc chưa đủ.")
+        return
+
+    df_hm = pd.DataFrame(heatmap_data)
+    df_pivot = df_hm.pivot(index="Khía cạnh", columns="Sản phẩm", values="Hài lòng (%)")
+    df_pivot = df_pivot.reindex(df_pivot.mean(axis=1).sort_values(ascending=False).index)
+
+    # --- 4. RENDER HEATMAP ---
+    fig = px.imshow(
+        df_pivot,
+        labels=dict(y="Khía cạnh", x="Sản phẩm", color="Hài lòng %"),
+        color_continuous_scale="RdYlGn",
+        aspect="auto",
+        title="Market Sentiment Map (Interactive)",
+    )
+    fig.update_traces(hovertemplate="<b>%{x}</b><br>Khía cạnh: %{y}<br>Hài lòng: %{z:.1f}%<extra></extra>")
+    fig.update_layout(height=max(500, len(df_pivot) * 25))
+    st.plotly_chart(fig, use_container_width=True)
+
+    # --- 5. QUICK DRILL-DOWN (INTERACTIVE) ---
+    st.markdown("##### 🚀 Quick Drill-down")
+    st.caption("Click vào một dòng để chuyển sang xem chi tiết sản phẩm đó.")
+    
+    df_summary = df_batch[['brand', 'asin', 'real_total_ratings']].copy()
+    df_summary.columns = ['Brand', 'ASIN', 'Reviews']
+    df_summary['Brand'] = df_summary['Brand'].fillna('Unknown')
+    
+    event = st.dataframe(
+        df_summary,
+        on_select="rerun",
+        selection_mode="single-row",
+        hide_index=True,
+        use_container_width=True,
+        key=f"jump_table_v3_{selected_asin}"
+    )
+
+    if event and event.get("selection", {}).get("rows"):
+        idx = event["selection"]["rows"][0]
+        jump_asin = df_summary.iloc[idx]["ASIN"]
+        
+        if jump_asin:
+            # 1. Update Sidebar
+            st.session_state["main_asin_selector"] = jump_asin
+            # 2. Reset Mode to Single Product
+            st.session_state[f"xray_view_mode_{selected_asin}"] = "📦 Từng sản phẩm"
+            st.success(f"Đang chuyển hướng sang {jump_asin}...")
+            st.rerun()

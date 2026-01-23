@@ -92,7 +92,8 @@ def list_staging_files():
 
 # --- UI ---
 st.title("🛡️ Gatekeeper Control Center")
-st.caption(f"Welcome, **{st.session_state['username']}**")
+active_db = os.path.basename(get_db_path())
+st.caption(f"Welcome, **{st.session_state['username']}** | Connected to: `{active_db}`")
 
 # Tabs
 tab_req, tab_scrape, tab_staging, tab_ai, tab_logs = st.tabs(
@@ -312,7 +313,7 @@ with tab_logs:
             "Select Command:",
             [
                 "ls -lh staging_data/",
-                "du -sh scout_app/database/scout.duckdb",
+                f"du -sh scout_app/database/{active_db}",
                 "python manage.py batch-status",
                 "python manage.py batch-collect",
                 "python manage.py batch-submit-miner --limit 5000",
@@ -325,10 +326,10 @@ with tab_logs:
         st.write("")  # Spacer
         run_cmd = st.button("▶️ Run Command", type="primary", use_container_width=True)
 
-    # --- NEW: DB DEDUP INTEGRATION ---
+    # --- NEW: DB DEDUP & VACUUM INTEGRATION ---
     st.markdown("---")
     st.markdown("#### 🧹 Database Maintenance")
-    d_col1, d_col2 = st.columns(2)
+    d_col1, d_col2, d_col3 = st.columns(3)
     with d_col1:
         if st.button("🔍 Check Duplicate Stats", use_container_width=True):
             try:
@@ -348,6 +349,18 @@ with tab_logs:
                     st.success("🚀 Dedup Task Dispatched!")
                 else:
                     st.error(res.text)
+            except:
+                st.error("Worker Offline")
+    with d_col3:
+        if st.button("💨 DB Compaction (Vacuum)", help="Reclaim disk space and optimize performance", use_container_width=True):
+            try:
+                # Use exec_cmd to trigger vacuum via python inline
+                v_cmd = f"python -c 'import duckdb; conn=duckdb.connect(\"scout_app/database/{active_db}\"); conn.execute(\"CHECKPOINT; VACUUM;\"); conn.close()'"
+                res = requests.post(f"{WORKER_URL}/admin/exec_cmd", json={"cmd": v_cmd}, timeout=60)
+                if res.status_code == 200:
+                    st.toast("✅ DB Vacuumed successfully!")
+                else:
+                    st.error(f"Failed to vacuum: {res.text}")
             except:
                 st.error("Worker Offline")
 

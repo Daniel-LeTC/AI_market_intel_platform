@@ -138,6 +138,7 @@ class StatsEngine:
         impact_map = {}
 
         for _, row in aspect_df.iterrows():
+            if pd.isnull(row['star']): continue
             aspect = row['aspect']
             star = int(row['star'])
             sentiment = row['sentiment']
