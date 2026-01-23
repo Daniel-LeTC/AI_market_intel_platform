@@ -3,6 +3,7 @@ import duckdb
 import pandas as pd
 import streamlit as st
 import sys
+import uuid
 from pathlib import Path
 import time
 import functools

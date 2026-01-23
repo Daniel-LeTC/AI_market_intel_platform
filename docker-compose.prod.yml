@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  ui:
+    image: asia-southeast1-docker.pkg.dev/br-data-rv/bright-repo/scout-ui:latest
+    container_name: scout_ui_prod
+    command: ["python", "-m", "streamlit", "run", "scout_app/Market_Intelligence.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./scout_app/database:/app/scout_app/database
+      - ./scout_app/logs:/app/scout_app/logs
+      - ./staging_data:/app/staging_data
+    env_file:
+      - .env
+    depends_on:
+      - worker
+    restart: always
+    networks:
+      - scout_net
+
+  worker:
+    image: asia-southeast1-docker.pkg.dev/br-data-rv/bright-repo/scout-worker:latest
+    container_name: scout_worker_prod
+    command: ["python", "-m", "uvicorn", "worker_api:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./scout_app/database:/app/scout_app/database
+      - ./scout_app/logs:/app/scout_app/logs
+      - ./staging_data:/app/staging_data
+    env_file:
+      - .env
+    restart: always
+    networks:
+      - scout_net
+
+networks:
+  scout_net:
+    driver: bridge

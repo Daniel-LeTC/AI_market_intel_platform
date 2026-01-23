@@ -143,6 +143,11 @@ def trigger_scrape(req: ScrapeRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(run_scraper_task, asins)
     return {"status": "accepted", "job": "scrape", "target": asins}
 
+@app.post("/trigger/ingest", status_code=202)
+def trigger_ingest(req: IngestRequest, background_tasks: BackgroundTasks):
+    background_tasks.add_task(run_ingest_task, req.file_path)
+    return {"status": "accepted", "job": "ingest", "file": req.file_path}
+
 def run_recalc_task(asin: str = None):
     logger.info(f"📊 [Recalc] Starting task (Target: {asin or 'SMART GLOBAL'})...")
     try:

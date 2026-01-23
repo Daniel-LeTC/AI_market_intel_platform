@@ -1,24 +1,26 @@
 # 📝 Tactical Plan (TODO)
 
-## Phase 3: Infrastructure Refactoring & Cleanup 🛠️ [COMPLETE]
+## Phase 3: Production Deployment & Hardening (Current)
+- [x] **Dockerize Application**
+    - [x] Create `Dockerfile` (Unified).
+    - [x] Create `docker-compose.prod.yml`.
+    - [x] Optimize `.dockerignore`.
+- [x] **GCP Deployment**
+    - [x] Build & Push Scripts (`scripts/deploy_build.sh`).
+    - [x] Remote Deploy Scripts (`scripts/deploy_remote.sh`).
+    - [x] **Hot Patch Workflow** (`scripts/hot_patch_all.sh`) for fast iteration.
+- [x] **Bug Fixing (Post-Deploy)**
+    - [x] Fix `DeltaGenerator` error in `Market_Intelligence.py`.
+    - [x] Fix `NameError: uuid` in `ui/common.py`.
+    - [x] Fix Missing `/trigger/ingest` endpoint in `worker_api.py`.
 
-### 1. Core Fortification
-- [x] **Universal Ingest:** Handles Child ASINs, JSONL flattening, and Smart Upsert. (Done)
-- [x] **Money-Safe Miner:** Pre-locking and Deduplication verified. (Done)
-- [x] **Precise Janitor:** RAG Shield and Auto-trigger verified. (Done)
-- [x] **Blue-Green Sync:** `manage.py` and Admin Console synchronized. (Done)
+## Phase 4: Social Scout AI (Next)
+- [ ] **Trend Bridge Engine**
+    - [ ] Keyword Matching Logic (Social vs Amazon).
+    - [ ] Volume Correlation.
+- [ ] **Sentiment X-Ray**
+    - [ ] Social Sentiment Analysis.
 
-### 2. Admin Console & Housekeeping
-- [x] **Archive Legacy Files:** Cleaned up `scripts/` and `upload_batch_*`. (Done)
-- [x] **DB Maintenance UI:** Added Vacuum/Compaction button to Admin Console. (Done)
-- [ ] **Background Progress UI:** Add status indicators for long-running jobs.
-
-## Phase 4: Social Scout AI & Polish 🛰️ [NEXT]
-
-### 1. Trend Bridge
-- [ ] Implement Keyword Matching between Amazon Sentiment and Social Trends.
-- [ ] "Sentiment X-Ray" for TikTok/Meta comments.
-
-### 2. Deployment Prep
-- [ ] **Final DB Purge:** Delete `scout_fresh.duckdb` and Lab clones before Monday.
-- [ ] GCP VM Deployment config audit.
+## Backlog
+- [ ] Admin Console: Progress Bars for Background Tasks.
+- [ ] Load History from Disk (JSONL).

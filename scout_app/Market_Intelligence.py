@@ -84,7 +84,10 @@ def main():
                 force_chk = st.checkbox("Force Update")
                 if st.form_submit_button("Submit"):
                     ok, msg = request_new_asin(new_asin.strip(), req_note, force_chk, user_id=current_user_id)
-                    st.success(msg) if ok else st.warning(msg)
+                    if ok:
+                        st.success(msg)
+                    else:
+                        st.warning(msg)
 
         st.markdown("---")
         # Load ASIN List (True Parents Only)

@@ -22,8 +22,16 @@ upload_batch_*/
 reports/
 
 # Database (Mount via Volume instead)
-scout.duckdb
+scout_app/database/archived/
+scout_app/database/*.duckdb
+scout_app/database/current_db.txt
 *.duckdb
 
-# OS
-.DS_Store
+# IDE & Linter
+.vscode/
+.idea/
+.ruff_cache/
+
+# Logs
+scout_app/logs/*.log
+*.log
