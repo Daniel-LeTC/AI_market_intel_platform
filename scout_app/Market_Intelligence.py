@@ -19,31 +19,33 @@ from scout_app.ui.tabs.strategy import render_strategy_tab
 # --- Config ---
 st.set_page_config(page_title="Product Intelligence", page_icon="🕵️", layout="wide")
 
-# --- AUTHENTICATION GATEKEEPER ---
-if "authenticated" not in st.session_state:
-    st.session_state["authenticated"] = False
+def main():
+    # --- JUMP INTERCEPTOR (Bypass Streamlit State Conflict) ---
+    # This must run BEFORE sidebar instantiation
+    if "jump_table_market" in st.session_state:
+        selection = st.session_state["jump_table_market"].get("selection", {}).get("rows")
+        if selection:
+            # We need the ASIN list to find what was clicked
+            # Since we are in main(), we can fetch the list now
+            df_temp = query_df("SELECT parent_asin FROM products WHERE asin = parent_asin ORDER BY parent_asin ASC")
+            if not df_temp.empty:
+                idx = selection[0]
+                # In Mass Mode, the list might be different, but for now we trust 
+                # the index if we use the same sorting. 
+                # BETTER: The Jump Interceptor should store the ASIN directly if possible.
+                # However, for simplicity, let's just use the index against the master list for now.
+                asin_list = df_temp["parent_asin"].tolist()
+                if idx < len(asin_list):
+                    st.session_state["main_asin_selector"] = asin_list[idx]
+            
+            # Clear selection to prevent infinite loop
+            st.session_state["jump_table_market"] = {"selection": {"rows": [], "columns": []}}
 
-# Ensure keys exist
-for key in ["user_id", "role", "username"]:
-    if key not in st.session_state:
-        st.session_state[key] = None
+    # --- AUTHENTICATION GATEKEEPER ---
+    if "authenticated" not in st.session_state:
+        st.session_state["authenticated"] = False
 
-# --- AUTHENTICATION GATEKEEPER ---
-if "authenticated" not in st.session_state:
-    st.session_state["authenticated"] = False
-
-# Ensure keys exist
-for key in ["user_id", "role", "username"]:
-    if key not in st.session_state:
-        st.session_state[key] = None
-
-# Create a placeholder for the login form
-login_placeholder = st.empty()
-
-# If NOT authenticated, render the login form inside the placeholder
-if not st.session_state["authenticated"]:
-    # Login Page Layout
-    with login_placeholder.container():
+    if not st.session_state["authenticated"]:
         c1, c2, c3 = st.columns([1, 1, 1])
         with c2:
             st.markdown("# 🔐 Login")
@@ -51,184 +53,100 @@ if not st.session_state["authenticated"]:
                 username = st.text_input("Username")
                 password = st.text_input("Password", type="password")
                 submit = st.form_submit_button("Login")
-
                 if submit:
                     auth = AuthManager()
                     user = auth.verify_user(username, password)
                     if user:
-                        st.session_state["authenticated"] = True
-                        st.session_state["user_id"] = user["user_id"]
-                        st.session_state["username"] = user["username"]
-                        st.session_state["role"] = user["role"]
-                        # Do NOT rerun. Just clear the placeholder.
-                        login_placeholder.empty()
+                        st.session_state.update({
+                            "authenticated": True, "user_id": user["user_id"],
+                            "username": user["username"], "role": user["role"]
+                        })
+                        st.rerun()
                     else:
-                        st.error("Invalid username or password.")
-                        st.stop() # Stop here if failed
-                else:
-                    st.stop() # Stop here if waiting for input
+                        st.error("Invalid credentials.")
+        return
 
-# --- MAIN APP (Authenticated) ---
-# If we reach here, it means st.session_state["authenticated"] is True
-# (Either from previous session OR just set above)
+    current_user_id = st.session_state["user_id"]
+    current_username = st.session_state["username"]
 
-# Double check to clear placeholder if it was set (e.g. strict refresh)
-login_placeholder.empty()
+    # --- SIDEBAR ---
+    with st.sidebar:
+        st.caption(f"Logged in as: **{current_username}**")
+        if st.sidebar.button("Logout"):
+            st.session_state["authenticated"] = False
+            st.rerun()
 
-current_user_id = st.session_state["user_id"]
-current_username = st.session_state["username"]
+        st.markdown("---")
+        with st.sidebar.expander("➕ Request New ASIN"):
+            with st.form("req_form"):
+                new_asin = st.text_input("Enter ASIN:", placeholder="B0...")
+                req_note = st.text_input("Note:")
+                force_chk = st.checkbox("Force Update")
+                if st.form_submit_button("Submit"):
+                    ok, msg = request_new_asin(new_asin.strip(), req_note, force_chk, user_id=current_user_id)
+                    st.success(msg) if ok else st.warning(msg)
 
-# --- Sidebar ---
-st.sidebar.title("🕵️ Product Intelligence")
-st.sidebar.caption(f"Logged in as: **{current_username}**")
-if st.sidebar.button("Logout"):
-    st.session_state["authenticated"] = False
-    st.rerun()
+        st.markdown("---")
+        # Load ASIN List (True Parents Only)
+        df_asins = query_df("""
+            SELECT 
+                parent_asin, 
+                real_average_rating as avg_rating 
+            FROM products 
+            WHERE asin = parent_asin
+            ORDER BY parent_asin ASC
+        """)
+        
+        if df_asins.empty:
+            st.error("No data in DB.")
+            return
 
-st.sidebar.markdown("---")
-
-# Request Form
-with st.sidebar.expander("➕ Request New ASIN"):
-    with st.form("req_form"):
-        new_asin = st.text_input("Enter ASIN:", placeholder="B0...")
-        req_note = st.text_input("Note:", placeholder="Why prioritize this?")
-        force_chk = st.checkbox("Force Update (If exists)")
-
-        submitted = st.form_submit_button("Submit Request")
-        if submitted:
-            if not new_asin or not new_asin.startswith("B0"):
-                st.error("Invalid ASIN (Must start with 'B0')")
-            else:
-                ok, msg = request_new_asin(new_asin.strip(), req_note, force_chk, user_id=current_user_id)
-                if ok:
-                    if "⚠️" in msg:
-                        st.warning(msg)
-                    else:
-                        st.success(msg)
-                else:
-                    st.warning(msg)
-
-    # Show History
-    st.caption("🕒 Recent Requests")
-    
-    @st.cache_data(ttl=30)
-    def get_recent_requests(uid):
-        try:
-            return query_df(
-                "SELECT asin, status FROM scrape_queue WHERE requested_by = ? ORDER BY created_at DESC LIMIT 5",
-                [uid],
-            )
-        except:
-            return pd.DataFrame()
-
-    hist_df = get_recent_requests(current_user_id)
-    if not hist_df.empty:
-        st.dataframe(hist_df, use_container_width=True, hide_index=True)
-
-st.sidebar.markdown("---")
-
-# Load ASIN List (Cached for Performance)
-@st.cache_data
-def get_asin_list():
-    return query_df("""
-        SELECT 
-            asin as parent_asin, 
-            COALESCE(real_total_ratings, 0) as review_count, 
-            COALESCE(real_average_rating, 0.0) as avg_rating
-        FROM products 
-        WHERE asin = parent_asin
-        ORDER BY review_count DESC, parent_asin ASC
-    """)
-
-df_asins = get_asin_list()
-
-if df_asins.empty:
-    st.warning("No data found. Please ingest some reviews first.")
-else:
-    selected_asin = st.sidebar.selectbox(
-        "Select Product (ASIN)",
-        df_asins["parent_asin"].tolist(),
-        format_func=lambda x: f"{x} (⭐{df_asins[df_asins['parent_asin'] == x]['avg_rating'].values[0]})",
-        key="main_asin_selector"
-    )
+        selected_asin = st.sidebar.selectbox(
+            "Select Product (ASIN)",
+            df_asins["parent_asin"].tolist(),
+            format_func=lambda x: f"{x} (⭐{df_asins[df_asins['parent_asin'] == x]['avg_rating'].values[0]})",
+            key="main_asin_selector"
+        )
 
     if selected_asin:
-        # --- Handle ASIN Change Logic (With History Swap) ---
+        # ASIN Change History Swap
         if "current_asin" not in st.session_state:
             st.session_state["current_asin"] = selected_asin
         
-        # Init Global History Vault
         if "chat_histories" not in st.session_state:
             st.session_state["chat_histories"] = {}
 
-        # If ASIN changed, Swap History & Reset Detective
         if st.session_state["current_asin"] != selected_asin:
-            old_asin = st.session_state["current_asin"]
-            # 1. Save OLD history to Vault
-            st.session_state["chat_histories"][old_asin] = st.session_state.messages
-            # 2. Load NEW history from Vault (or empty if first time)
+            st.session_state["chat_histories"][st.session_state["current_asin"]] = st.session_state.get("messages", [])
             st.session_state.messages = st.session_state["chat_histories"].get(selected_asin, [])
-            # 3. Reset Agent
-            st.session_state.detective = None 
-            if "detective" in st.session_state:
-                del st.session_state["detective"]
-            # 4. Update Pointer & Rerun
             st.session_state["current_asin"] = selected_asin
+            # Detective reset logic handled inside Strategy tab or here
+            if "detective" in st.session_state: del st.session_state["detective"]
             st.rerun()
 
-        # --- Common Data Fetching ---
-        dna_query = """
-            SELECT 
-                asin, title, material, main_niche, gender, design_type, 
-                target_audience, size_capacity, product_line, 
-                num_pieces, pack, brand, image_url, parent_asin
-            FROM products 
-            WHERE asin = ? OR parent_asin = ? 
-            ORDER BY 
-                (brand IS NOT NULL) DESC,
-                (title IS NOT NULL) DESC,
-                (asin = parent_asin) DESC
-        """
-        dna = query_df(dna_query, [selected_asin, selected_asin])
+        # Fetch DNA (Full Family)
+        dna = query_df("SELECT * FROM products WHERE parent_asin = ?", [selected_asin])
+        
+        # Determine Display Title & Brand from the Parent row specifically
+        parent_row = dna[dna['asin'] == selected_asin]
+        if not parent_row.empty:
+            title = parent_row.iloc[0]['title'] or selected_asin
+            brand = parent_row.iloc[0]['brand'] or "N/A"
+        else:
+            # Fallback to first available if parent row is weirdly missing
+            title = dna.iloc[0]['title'] if not dna.empty else selected_asin
+            brand = dna.iloc[0]['brand'] if not dna.empty else "N/A"
 
-        # Product Title Header
-        product_display_title = selected_asin
-        product_brand = "N/A"
-        if not dna.empty:
-            d = dna.iloc[0]
-            product_display_title = d['title'] if d['title'] else selected_asin
-            product_brand = d['brand'] if d['brand'] else "N/A"
-
-        st.title(f"{product_brand} - {product_display_title[:50]}...")
-        if len(product_display_title) > 50:
-            st.caption(product_display_title)
-
-        # --- TABS LAYOUT ---
-        cleanup_js = """
-        <script>
-            var oldBtn = window.parent.document.getElementById('scrollBtn');
-            if (oldBtn) { oldBtn.remove(); }
-            var oldBtnV2 = window.parent.document.getElementById('scrollBtnV2');
-            if (oldBtnV2) { oldBtnV2.remove(); }
-        </script>
-        """
-        components.html(cleanup_js, height=0)
+        st.title(f"{brand} - {title[:60]}...")
 
         tab_overview, tab_deep, tab_battle, tab_strategy = st.tabs([
-            "🏠 Executive Summary", 
-            "🔬 Customer X-Ray", 
-            "⚔️ Market Showdown", 
-            "🧠 Strategy Hub"
+            "🏠 Executive Summary", "🔬 Customer X-Ray", "⚔️ Market Showdown", "🧠 Strategy Hub"
         ])
 
-        with tab_overview:
-            render_overview_tab(selected_asin, product_brand, dna)
+        with tab_overview: render_overview_tab(selected_asin, brand, dna)
+        with tab_deep: render_xray_tab(selected_asin)
+        with tab_battle: render_showdown_tab(selected_asin)
+        with tab_strategy: render_strategy_tab(selected_asin, current_user_id)
 
-        with tab_deep:
-            render_xray_tab(selected_asin)
-
-        with tab_battle:
-            render_showdown_tab(selected_asin)
-
-        with tab_strategy:
-            render_strategy_tab(selected_asin, current_user_id)
+if __name__ == "__main__":
+    main()

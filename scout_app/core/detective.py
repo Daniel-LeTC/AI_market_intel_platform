@@ -198,10 +198,16 @@ class DetectiveAgent:
 
             swot = {"strengths": [], "weaknesses": [], "controversial": [], "summary": {}}
             
-            global_stats = self._run_query("SELECT AVG(rating_score) as avg_rating, COUNT(*) as total_reviews FROM reviews WHERE parent_asin = ?", [asin]).iloc[0]
+            # --- FIX: Use REAL METADATA instead of sample average ---
+            meta_stats = self._run_query("""
+                SELECT real_average_rating, real_total_ratings 
+                FROM products WHERE asin = ? OR parent_asin = ? 
+                ORDER BY (asin = parent_asin) DESC LIMIT 1
+            """, [asin, asin]).iloc[0]
+            
             swot["summary"] = {
-                "avg_rating": round(float(global_stats['avg_rating']), 2),
-                "total_reviews": int(global_stats['total_reviews'])
+                "avg_rating": round(float(meta_stats['real_average_rating'] or 0), 2),
+                "total_reviews": int(meta_stats['real_total_ratings'] or 0)
             }
 
             for _, row in df.iterrows():
@@ -372,10 +378,9 @@ class DetectiveAgent:
                     p.parent_asin, 
                     ANY_VALUE(p.title) as title, 
                     ANY_VALUE(p.brand) as brand, 
-                    AVG(r.rating_score) as rating, 
-                    COUNT(r.review_id) as reviews
+                    MAX(p.real_average_rating) as rating, 
+                    MAX(p.real_total_ratings) as reviews
                 FROM products p
-                JOIN reviews r ON p.asin = r.child_asin
                 WHERE p.parent_asin != ? 
                 AND ({where_clause})
                 GROUP BY p.parent_asin

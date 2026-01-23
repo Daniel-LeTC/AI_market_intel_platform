@@ -41,7 +41,7 @@ class AIMiner:
         
         # 2. FETCH QUALIFIED
         query = f"""
-            SELECT review_id, parent_asin, text 
+            SELECT review_id, parent_asin, text, rating_score 
             FROM reviews 
             WHERE mining_status = '{status}'
             AND text IS NOT NULL
@@ -53,7 +53,7 @@ class AIMiner:
         return df.to_dict(orient='records')
 
     def _build_prompt(self, reviews_chunk: List[Dict]) -> str:
-        """Optimized prompt for RAW Aspect Extraction (Mass Chunking)."""
+        """Optimized prompt for RAW Aspect Extraction."""
         reviews_text = ""
         for r in reviews_chunk:
             t = r['text'].replace('"', "'").replace('\n', ' ')
@@ -82,13 +82,12 @@ class AIMiner:
 
         review_ids = [r['review_id'] for r in reviews]
         
-        # --- LAYER 1: LOCKING (PENDING -> QUEUED) ---
+        # --- LAYER 1: LOCKING ---
         print(f"🔒 [Miner-Live] Locking {len(review_ids)} reviews as 'QUEUED'...")
         self._update_mining_status(review_ids, "QUEUED")
 
         print(f"🧠 [Miner-Live] Dispatching to AI ({self.MODEL_NAME})...")
         
-        # We chunk even for live to maximize token efficiency
         chunk_size = 50 
         for i in range(0, len(reviews), chunk_size):
             chunk = reviews[i:i+chunk_size]
@@ -102,15 +101,14 @@ class AIMiner:
                 )
                 tags = json.loads(response.text)
                 
-                # --- LAYER 2: SAVE & STATUS -> COMPLETED ---
+                # --- LAYER 2: SAVE & FALLBACK ---
                 self._save_tags_to_db(tags, chunk)
                 print(f"   ✅ Processed chunk ({len(chunk)} reviews)")
             except Exception as e:
-                # Keep as 'QUEUED' for safety (avoids leaking money on retry)
                 print(f"💥 [Miner-Live] API Error: {e}. Items remain 'QUEUED'.")
 
     def prepare_batch_file(self, limit=10000) -> Optional[Path]:
-        """Prepare JSONL for Batch API. Supports limit for spending control."""
+        """Prepare JSONL for Batch API."""
         reviews = self.get_unmined_reviews(limit=limit, status='PENDING')
         if not reviews:
             print("✨ No pending reviews for Batch.")
@@ -143,35 +141,54 @@ class AIMiner:
                 f.write(json.dumps(request_body) + "\n")
                 review_ids_to_lock.extend([r['review_id'] for r in chunk])
 
-        # --- LAYER 1: LOCKING (PENDING -> QUEUED) ---
+        # LOCK as QUEUED
         self._update_mining_status(review_ids_to_lock, "QUEUED")
         print(f"✅ Prepared {file_path.name}. Reviews locked as 'QUEUED'.")
         return file_path
 
     def _save_tags_to_db(self, minified_tags: List[Dict], original_chunk: List[Dict]):
-        """Deduplicate and save extracted tags. Updates status to COMPLETED."""
-        if not minified_tags: return
-        
+        """Deduplicate and save extracted tags. Includes FALLBACK logic."""
+        original_ids = [r['review_id'] for r in original_chunk]
         asin_map = {r['review_id']: r['parent_asin'] for r in original_chunk}
+        rating_map = {r['review_id']: r['rating_score'] for r in original_chunk}
+        text_map = {r['review_id']: r['text'] for r in original_chunk}
+        
         sentiment_map = {"Pos": "Positive", "Neg": "Negative", "Neu": "Neutral"}
         
         data_to_insert = []
-        processed_ids = set()
-        for tag in minified_tags:
-            rid = tag.get("id")
-            pasin = asin_map.get(rid)
-            if rid and pasin:
-                # Save as RAW Aspect for Janitor to clean
-                data_to_insert.append(( 
-                    rid, pasin, tag.get("c"), tag.get("a"), 
-                    sentiment_map.get(tag.get("s"), "Neutral"), tag.get("q")
+        processed_with_tags = set()
+        
+        # 1. Process AI Tags
+        if minified_tags:
+            for tag in minified_tags:
+                rid = tag.get("id")
+                pasin = asin_map.get(rid)
+                if rid and pasin:
+                    data_to_insert.append((
+                        rid, pasin, tag.get("c"), tag.get("a"), 
+                        sentiment_map.get(tag.get("s"), "Neutral"), tag.get("q")
+                    ))
+                    processed_with_tags.add(rid)
+
+        # 2. FALLBACK LOGIC: If a review has no tags but was in the chunk, create a general tag
+        for rid in original_ids:
+            if rid not in processed_with_tags:
+                pasin = asin_map.get(rid)
+                score = rating_map.get(rid) or 3
+                # Determine sentiment from stars
+                if score >= 4: sent = "Positive"
+                elif score <= 2: sent = "Negative"
+                else: sent = "Neutral"
+                
+                data_to_insert.append((
+                    rid, pasin, "Satisfaction", "general feedback", 
+                    sent, text_map.get(rid, "N/A")[:100]
                 ))
-                processed_ids.add(rid)
 
         if data_to_insert:
             conn = self._get_conn()
-            # DEDUPLICATION: Always wipe old tags for these reviews before re-insert
-            id_list = "', '".join(processed_ids)
+            # DEDUPLICATION
+            id_list = "', '".join(original_ids)
             conn.execute(f"DELETE FROM review_tags WHERE review_id IN ('{id_list}')")
             
             conn.executemany("""
@@ -179,8 +196,8 @@ class AIMiner:
                 VALUES (?, ?, ?, ?, ?, ?)
             """, data_to_insert)
             
-            # --- STATUS UPGRADE (QUEUED -> COMPLETED) ---
-            self._update_mining_status(list(processed_ids), "COMPLETED")
+            # --- STATUS UPGRADE ---
+            self._update_mining_status(original_ids, "COMPLETED")
             conn.close()
 
     def _update_mining_status(self, review_ids: List[str], status: str):
@@ -191,19 +208,20 @@ class AIMiner:
         conn.close()
 
     def ingest_batch_results(self, jsonl_content: str):
-        """Universal Batch Ingest (Handles DEDUPLICATION)."""
+        """Universal Batch Ingest with Fallback support."""
         print("⚙️ [Miner-Batch] Ingesting results...")
         
         conn = self._get_conn(read_only=True)
-        reviews_df = conn.execute("SELECT review_id, parent_asin FROM reviews").df()
+        reviews_df = conn.execute("SELECT review_id, parent_asin, text, rating_score FROM reviews").df()
         asin_map = dict(zip(reviews_df['review_id'], reviews_df['parent_asin']))
+        rating_map = dict(zip(reviews_df['review_id'], reviews_df['rating_score']))
+        text_map = dict(zip(reviews_df['review_id'], reviews_df['text']))
         conn.close()
 
         success_count = 0
-        all_tags = []
-        all_processed_ids = []
         sentiment_map = {"Pos": "Positive", "Neg": "Negative", "Neu": "Neutral"}
 
+        # For Batch, we process line by line (each line is a chunk response)
         for line in jsonl_content.strip().split('\n'):
             try:
                 resp = json.loads(line)
@@ -213,30 +231,26 @@ class AIMiner:
                 raw_text = raw_text.replace('```json', '').replace('```', '').strip()
                 chunk_tags = json.loads(raw_text)
 
+                # Batch fallback is tricky because we don't know the exact original chunk here. 
+                # However, our Live Miner fix covers the most frequent cases. 
+                # For Batch, we will trust AI tags or mark the IDs as COMPLETED.
+                processed_ids = set()
+                data_to_insert = []
                 for tag in chunk_tags:
                     rid, pasin = tag.get("id"), asin_map.get(tag.get("id"))
                     if rid and pasin:
-                        all_tags.append(( 
+                        data_to_insert.append((
                             rid, pasin, tag.get("c"), tag.get("a"),
                             sentiment_map.get(tag.get("s"), "Neutral"), tag.get("q")
                         ))
-                        all_processed_ids.append(rid)
+                        processed_ids.add(rid)
                         success_count += 1
+                
+                if data_to_insert:
+                    conn = self._get_conn()
+                    id_list = "', '".join(processed_ids)
+                    conn.execute(f"DELETE FROM review_tags WHERE review_id IN ('{id_list}')")
+                    conn.executemany("INSERT INTO review_tags (review_id, parent_asin, category, aspect, sentiment, quote) VALUES (?, ?, ?, ?, ?, ?)", data_to_insert)
+                    self._update_mining_status(list(processed_ids), "COMPLETED")
+                    conn.close()
             except: continue
-
-        if all_tags:
-            conn = self._get_conn()
-            # Deduplicate before batch insert
-            unique_processed = list(set(all_processed_ids))
-            id_list = "', '".join(unique_processed)
-            conn.execute(f"DELETE FROM review_tags WHERE review_id IN ('{id_list}')")
-            
-            conn.executemany("""
-                INSERT INTO review_tags (review_id, parent_asin, category, aspect, sentiment, quote)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, all_tags)
-            
-            # --- STATUS UPGRADE (QUEUED -> COMPLETED) ---
-            self._update_mining_status(unique_processed, "COMPLETED")
-            conn.close()
-            print(f"✅ [Miner-Batch] Processed {success_count} tags for {len(unique_processed)} reviews.")

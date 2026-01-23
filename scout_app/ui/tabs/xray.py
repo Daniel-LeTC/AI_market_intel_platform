@@ -21,14 +21,21 @@ def render_xray_tab(selected_asin):
     """
     precalc = get_precalc_stats(selected_asin)
     
-    # --- MODE SELECTION ---
+    # --- MODE SELECTION (Robust State) ---
+    mode_key = f"xray_view_mode_final"
+    if mode_key not in st.session_state:
+        st.session_state[mode_key] = "📦 Từng sản phẩm"
+
     view_mode = st.radio(
         "Chế độ hiển thị (Display Mode):",
         ["📦 Từng sản phẩm", "🔥 So sánh thị trường (Top 50)"],
+        index=0 if st.session_state[mode_key] == "📦 Từng sản phẩm" else 1,
         horizontal=True,
         help="So sánh sản phẩm hiện tại hoặc xem bức tranh toàn cảnh 50 đối thủ hàng đầu.",
-        key=f"xray_view_mode_{selected_asin}"
+        key="xray_radio_widget"
     )
+    # Sync widget back to state
+    st.session_state[mode_key] = view_mode
 
     if "thị trường" in view_mode:
         render_mass_mode(selected_asin)
@@ -319,17 +326,11 @@ def render_mass_mode(selected_asin):
         selection_mode="single-row",
         hide_index=True,
         use_container_width=True,
-        key=f"jump_table_v3_{selected_asin}"
+        key="jump_table_market"
     )
 
     if event and event.get("selection", {}).get("rows"):
-        idx = event["selection"]["rows"][0]
-        jump_asin = df_summary.iloc[idx]["ASIN"]
-        
-        if jump_asin:
-            # 1. Update Sidebar
-            st.session_state["main_asin_selector"] = jump_asin
-            # 2. Reset Mode to Single Product
-            st.session_state[f"xray_view_mode_{selected_asin}"] = "📦 Từng sản phẩm"
-            st.success(f"Đang chuyển hướng sang {jump_asin}...")
-            st.rerun()
+        # We don't update state here because it's too late (Sidebar already rendered)
+        # We just trigger a rerun, and the 'Interceptor' at the top of Market_Intelligence will handle it.
+        st.session_state["xray_view_mode_final"] = "📦 Từng sản phẩm"
+        st.rerun()
