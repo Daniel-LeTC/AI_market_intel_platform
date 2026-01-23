@@ -1,4 +1,4 @@
-# 🚀 Bright Scraper Tool (Keplo Clone) - Backend & Infra
+# 🚀 Bright Scraper Tool - Backend & Infra
 
 > **The Powerhouse of Amazon Market Intelligence.** 
 > Utilizing **Apify** for deep scraping, **DuckDB** with Blue-Green architecture, and **Gemini 2.5 Flash Lite** for cost-effective mass sentiment mining.
