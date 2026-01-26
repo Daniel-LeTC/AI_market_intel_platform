@@ -234,21 +234,16 @@ def render_showdown_tab(selected_asin):
                     df_disp = df_disp.rename(
                         columns={
                             "aspect": "Feature",
-                            "Me_Sat": "Bạn (%)",
-                            "Them_Sat": "Đối thủ (%)",
-                            "Market_Avg": "Thị trường",
                             "Me_Pop": "Khách khen (Bạn)",
                             "Them_Pop": "Khách khen (ĐT)",
                         }
                     )
 
                     st.dataframe(
-                        df_disp[["Feature", "Bạn (%)", "Đối thủ (%)", "Winner", "Khách khen (Bạn)", "Khách khen (ĐT)"]],
+                        df_disp[["Feature", "Winner", "Khách khen (Bạn)", "Khách khen (ĐT)"]],
                         use_container_width=True,
                         hide_index=True,
                         column_config={
-                            "Bạn (%)": st.column_config.TextColumn(help="Tỉ lệ hài lòng (Satisfaction Rate)"),
-                            "Đối thủ (%)": st.column_config.TextColumn(help="Tỉ lệ hài lòng (Satisfaction Rate)"),
                             "Winner": st.column_config.TextColumn(
                                 help="Bên thắng dựa trên SỐ LƯỢNG khách hàng hài lòng thực tế (Proven Quality)."
                             ),

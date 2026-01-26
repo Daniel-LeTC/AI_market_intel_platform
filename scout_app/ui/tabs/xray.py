@@ -281,14 +281,16 @@ def render_mass_mode(selected_asin):
             m = json.loads(row["metrics_json"]) if isinstance(row["metrics_json"], str) else row["metrics_json"]
             brand_clean = row['brand'] if row['brand'] and row['brand'] != 'None' else 'Unknown'
             label = f"{brand_clean[:10]} ({row['asin']})"
+            real_total = row['real_total_ratings'] or 0
             
             for item in m.get("sentiment_weighted", []):
-                score = (item["est_positive"] / (item["est_positive"] + item["est_negative"] + 1e-9)) * 100
+                score = item["est_positive"] # Use Volume instead of %
                 heatmap_data.append({
                     "Sản phẩm": label,
                     "ASIN": row['asin'],
                     "Khía cạnh": item["aspect"],
-                    "Hài lòng (%)": score
+                    "Khách khen (Est)": score,
+                    "Tổng Rating": real_total
                 })
         except: continue
 
@@ -297,18 +299,29 @@ def render_mass_mode(selected_asin):
         return
 
     df_hm = pd.DataFrame(heatmap_data)
-    df_pivot = df_hm.pivot(index="Khía cạnh", columns="Sản phẩm", values="Hài lòng (%)")
-    df_pivot = df_pivot.reindex(df_pivot.mean(axis=1).sort_values(ascending=False).index)
+    df_pivot = df_hm.pivot(index="Khía cạnh", columns="Sản phẩm", values="Khách khen (Est)")
+    # Sort aspects by total volume of positive feedback across all products
+    df_pivot = df_pivot.reindex(df_pivot.sum(axis=1).sort_values(ascending=False).index)
+
+    # Create a mapping for total ratings to use in hover
+    rating_map = df_hm.set_index("Sản phẩm")["Tổng Rating"].to_dict()
 
     # --- 4. RENDER HEATMAP ---
     fig = px.imshow(
         df_pivot,
-        labels=dict(y="Khía cạnh", x="Sản phẩm", color="Hài lòng %"),
-        color_continuous_scale="RdYlGn",
+        labels=dict(y="Khía cạnh", x="Sản phẩm", color="Khách khen (Est)"),
+        color_continuous_scale="YlGnBu", # Yellow-Green-Blue for density/volume
         aspect="auto",
-        title="Market Sentiment Map (Interactive)",
+        title="Market Strength Map (Weighted Volume)",
     )
-    fig.update_traces(hovertemplate="<b>%{x}</b><br>Khía cạnh: %{y}<br>Hài lòng: %{z:.1f}%<extra></extra>")
+    
+    # Custom hover data: pass total ratings to the hovertemplate
+    hover_ratings = [[rating_map.get(col, 0) for col in df_pivot.columns] for _ in range(len(df_pivot))]
+    
+    fig.update_traces(
+        customdata=hover_ratings,
+        hovertemplate="<b>%{x}</b><br>Khía cạnh: %{y}<br>Khách khen: %{z:,.0f} người<br>Tổng Rating: %{customdata:,.0f}<extra></extra>"
+    )
     fig.update_layout(height=max(500, len(df_pivot) * 25))
     st.plotly_chart(fig, use_container_width=True)
 
