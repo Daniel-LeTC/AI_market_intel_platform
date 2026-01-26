@@ -300,6 +300,10 @@ def render_mass_mode(selected_asin):
 
     df_hm = pd.DataFrame(heatmap_data)
     df_pivot = df_hm.pivot(index="Khía cạnh", columns="Sản phẩm", values="Khách khen (Est)")
+    
+    # FIX: Fill NaN with 0 for missing aspects (Clean Heatmap)
+    df_pivot = df_pivot.fillna(0)
+    
     # Sort aspects by total volume of positive feedback across all products
     df_pivot = df_pivot.reindex(df_pivot.sum(axis=1).sort_values(ascending=False).index)
 
