@@ -13,6 +13,8 @@ FILES=(
     ["scout_app/Market_Intelligence.py"]="scout_ui_prod:/app/scout_app/Market_Intelligence.py"
     ["scout_app/ui/common.py"]="scout_ui_prod:/app/scout_app/ui/common.py"
     ["scout_app/ui/tabs/xray.py"]="scout_ui_prod:/app/scout_app/ui/tabs/xray.py"
+    ["scout_app/ui/tabs/showdown.py"]="scout_ui_prod:/app/scout_app/ui/tabs/showdown.py"
+    ["scout_app/pages/05_Social_Scout.py"]="scout_ui_prod:/app/scout_app/pages/05_Social_Scout.py"
     ["worker_api.py"]="scout_worker_prod:/app/worker_api.py"
 )
 
