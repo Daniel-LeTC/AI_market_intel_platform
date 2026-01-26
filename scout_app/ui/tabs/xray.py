@@ -319,10 +319,10 @@ def render_mass_mode(selected_asin):
         title="Market Strength Map (Weighted Volume)",
     )
     
-    # Custom hover data: pass total ratings to the hovertemplate
-    hover_ratings = [[rating_map.get(col, 0) for col in df_pivot.columns] for _ in range(len(df_pivot))]
-    
+    # Add Grid Lines (using gaps)
     fig.update_traces(
+        xgap=1, # 1 pixel gap between columns
+        ygap=1, # 1 pixel gap between rows
         customdata=hover_ratings,
         hovertemplate="<b>%{x}</b><br>Khía cạnh: %{y}<br>Khách khen: %{z:,.0f} người<br>Tổng Rating: %{customdata:,.0f}<extra></extra>"
     )
