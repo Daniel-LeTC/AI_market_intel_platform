@@ -309,6 +309,7 @@ def render_mass_mode(selected_asin):
 
     # Create a mapping for total ratings to use in hover
     rating_map = df_hm.set_index("Sản phẩm")["Tổng Rating"].to_dict()
+    hover_ratings = [[rating_map.get(col, 0) for col in df_pivot.columns] for _ in range(len(df_pivot))]
 
     # --- 4. RENDER HEATMAP ---
     fig = px.imshow(
