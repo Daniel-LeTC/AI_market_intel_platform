@@ -162,9 +162,9 @@ def render_showdown_tab(selected_asin):
                 df_me_raw["Me_Sat"] = (df_me_raw["est_positive"] / (df_me_raw["est_positive"] + df_me_raw["est_negative"] + 1e-9)) * 100
                 df_them_raw["Them_Sat"] = (df_them_raw["est_positive"] / (df_them_raw["est_positive"] + df_them_raw["est_negative"] + 1e-9)) * 100
                 
-                # Align data
-                m1 = df_me_raw[["aspect", "Me_Sat", "total_impact_vol"]].rename(columns={"total_impact_vol": "Me_Vol"})
-                m2 = df_them_raw[["aspect", "Them_Sat", "total_impact_vol"]].rename(columns={"total_impact_vol": "Them_Vol"})
+                # Align data - Use est_positive (Weighted Population) for Winner Logic
+                m1 = df_me_raw[["aspect", "Me_Sat", "est_positive"]].rename(columns={"est_positive": "Me_Pop"})
+                m2 = df_them_raw[["aspect", "Them_Sat", "est_positive"]].rename(columns={"est_positive": "Them_Pop"})
                 
                 df_battle = pd.merge(m1, m2, on="aspect", how="inner")
                 
@@ -175,12 +175,26 @@ def render_showdown_tab(selected_asin):
                 else:
                     df_battle["Market_Avg"] = pd.NA
                 
+                # --- FILTER: Battle of Strengths Only ---
+                # Only compare aspects where BOTH sides have at least some positive feedback.
+                # If one side has 0 positive, it's not a battle, it's a slaughter (or irrelevant).
+                df_battle = df_battle[(df_battle['Me_Pop'] > 0) & (df_battle['Them_Pop'] > 0)]
+
                 if not df_battle.empty:
-                    # Logic: Who wins?
+                    # Logic: Who wins? (Based on Proven Population - est_positive)
                     def determine_winner(row):
-                        diff = row['Me_Sat'] - row['Them_Sat']
-                        if abs(diff) < 1: return "⚪ Tie"
-                        return "🔵 Bạn" if diff > 0 else "🔴 Đối thủ"
+                        score_me = row['Me_Pop']
+                        score_them = row['Them_Pop']
+                        
+                        # Tie logic: If difference is less than 10% of the max score OR raw difference is trivial (<2 people)
+                        max_score = max(score_me, score_them)
+                        if max_score < 2: return "⚪ Tie" # Too little data
+                        
+                        diff_pct = abs(score_me - score_them) / max_score
+                        
+                        if diff_pct < 0.10: return "⚪ Tie" # < 10% diff considered margin of error
+                        
+                        return "🔵 Bạn" if score_me > score_them else "🔴 Đối thủ"
 
                     df_battle["Winner"] = df_battle.apply(determine_winner, axis=1)
                     
@@ -193,25 +207,36 @@ def render_showdown_tab(selected_asin):
                     # Column renaming for UI
                     df_disp = df_disp.rename(columns={
                         "aspect": "Feature",
-                        "Me_Sat": "Bạn",
-                        "Them_Sat": "Đối thủ",
+                        "Me_Sat": "Bạn (%)",
+                        "Them_Sat": "Đối thủ (%)",
                         "Market_Avg": "Thị trường",
-                        "Me_Vol": "Lượt nhắc (Bạn)",
-                        "Them_Vol": "Lượt nhắc (ĐT)"
+                        "Me_Pop": "Khách khen (Bạn)",
+                        "Them_Pop": "Khách khen (ĐT)"
                     })
 
                     st.dataframe(
-                        df_disp[["Feature", "Bạn", "Đối thủ", "Winner", "Thị trường", "Lượt nhắc (Bạn)", "Lượt nhắc (ĐT)"]],
+                        df_disp[["Feature", "Bạn (%)", "Đối thủ (%)", "Winner", "Khách khen (Bạn)", "Khách khen (ĐT)"]],
                         use_container_width=True,
                         hide_index=True,
                         column_config={
-                            "Bạn": st.column_config.TextColumn(help="Tỉ lệ hài lòng của bạn"),
-                            "Đối thủ": st.column_config.TextColumn(help="Tỉ lệ hài lòng của đối thủ"),
-                            "Winner": st.column_config.TextColumn(help="Thằng nào đang làm tốt hơn ở khía cạnh này"),
-                            "Lượt nhắc (Bạn)": st.column_config.NumberColumn(format="%d", help="Số người quan tâm/nhắc tới ở phía bạn"),
+                            "Bạn (%)": st.column_config.TextColumn(help="Tỉ lệ hài lòng (Satisfaction Rate)"),
+                            "Đối thủ (%)": st.column_config.TextColumn(help="Tỉ lệ hài lòng (Satisfaction Rate)"),
+                            "Winner": st.column_config.TextColumn(help="Bên thắng dựa trên SỐ LƯỢNG khách hàng hài lòng thực tế (Proven Quality)."),
+                            "Khách khen (Bạn)": st.column_config.ProgressColumn(
+                                format="%d", 
+                                min_value=0, 
+                                max_value=int(max(df_disp["Khách khen (Bạn)"].max(), df_disp["Khách khen (ĐT)"].max())),
+                                help="Số lượng khách ước tính hài lòng (Weighted Volume)"
+                            ),
+                            "Khách khen (ĐT)": st.column_config.ProgressColumn(
+                                format="%d", 
+                                min_value=0, 
+                                max_value=int(max(df_disp["Khách khen (Bạn)"].max(), df_disp["Khách khen (ĐT)"].max())),
+                                help="Số lượng khách ước tính hài lòng (Weighted Volume)"
+                            ),
                         }
                     )
-                    st.caption(f"ℹ️ **Ghi chú:** Người thắng là bên có tỷ lệ hài lòng cao hơn ít nhất 5%. Nếu lượt nhắc quá thấp, kết quả chỉ mang tính tham khảo.")
+                    st.caption(f"ℹ️ **Cơ chế trọng tài:** Người thắng được xác định bởi **Số lượng khách hài lòng thực tế** (Est. Positive Population), không chỉ dựa vào % tỷ lệ. Điều này đảm bảo sản phẩm uy tín hơn (Proven Quality) sẽ được ghi nhận xứng đáng. Bảng chỉ hiển thị các tính năng mà cả hai bên đều được khen ngợi.")
                 else:
                     st.info("No shared features found in analysis data.")
             else:
@@ -222,7 +247,7 @@ def render_showdown_tab(selected_asin):
         st.markdown("---")
 
         # --- SECTION 2: UNIQUE FEATURES ---
-        st.markdown("#### 💎 Unique/Exclusive Features")
+        st.markdown("#### 💎 Unique/Exclusive Features (Lợi thế độc quyền)")
         c_uniq1, c_uniq2 = st.columns(2)
         
         aspects_me = set(df_me_raw["aspect"])
@@ -231,58 +256,76 @@ def render_showdown_tab(selected_asin):
         unique_me_list = list(aspects_me - aspects_them)
         unique_them_list = list(aspects_them - aspects_me)
 
-        def render_unique_table(asin, aspect_list, df_source, key_prefix):
+        def render_unique_table(asin, aspect_list, df_source):
             if not aspect_list:
                 st.info("No unique features detected.")
                 return
             
             df_u = df_source[df_source["aspect"].isin(aspect_list)].copy()
-            df_u["Satisfaction"] = (df_u["est_positive"] / (df_u["est_positive"] + df_u["est_negative"] + 1e-9) * 100).map(lambda x: f"{x:.0f}%")
+            # Rename est_positive for consistency
+            df_u = df_u.rename(columns={"aspect": "Unique Feature", "est_positive": "Khách khen (Est)"})
             
-            # Pagination if too many unique features
-            rows_per_page = 10
-            if len(df_u) > rows_per_page:
-                t_pages = (len(df_u) + rows_per_page - 1) // rows_per_page
-                pg = st.number_input(f"Page ({key_prefix})", 1, t_pages, 1, key=f"pg_u_{key_prefix}_{selected_asin}")
-                start = (pg-1)*rows_per_page
-                df_show = df_u.iloc[start : start+rows_per_page]
-            else:
-                df_show = df_u
-
-            st.dataframe(df_show[["aspect", "Satisfaction"]].rename(columns={"aspect": "Unique Feature"}), hide_index=True, use_container_width=True)
+            # Use fixed height for scrolling (Avoids misalignment)
+            st.dataframe(
+                df_u[["Unique Feature", "Khách khen (Est)"]].sort_values("Khách khen (Est)", ascending=False),
+                hide_index=True, 
+                use_container_width=True,
+                height=300, # Fixed height ensures headers align
+                column_config={
+                    "Khách khen (Est)": st.column_config.ProgressColumn(
+                        format="%d",
+                        min_value=0,
+                        max_value=int(df_u["Khách khen (Est)"].max() if not df_u.empty else 100),
+                        help="Số lượng khách hàng ước tính hài lòng về tính năng độc quyền này."
+                    )
+                }
+            )
 
         with c_uniq1:
-            st.subheader(f"Only in {selected_asin}")
-            render_unique_table(selected_asin, unique_me_list, df_me_raw, "me")
+            st.caption(f"🔵 Only in **{selected_asin}**")
+            render_unique_table(selected_asin, unique_me_list, df_me_raw)
         
         with c_uniq2:
-            st.subheader(f"Only in {challenger_asin}")
-            render_unique_table(challenger_asin, unique_them_list, df_them_raw, "them")
+            st.caption(f"🔴 Only in **{challenger_asin}**")
+            render_unique_table(challenger_asin, unique_them_list, df_them_raw)
 
         st.markdown("---")
         
         # --- SECTION 3: WEAKNESSES ---
-        st.markdown("#### 💔 Top Weaknesses Comparison")
+        st.markdown("#### 💔 Top Weaknesses (Vấn đề nghiêm trọng)")
         cw1, cw2 = st.columns(2)
         
-        def render_top_weakness(df_source, title):
+        def render_top_weakness(df_source):
             if df_source.empty:
                 st.info("No data available.")
                 return
             # Filter for negative impact aspects and sort by magnitude
             df_w_list = df_source[df_source["net_impact"] < 0].sort_values("est_negative", ascending=False).head(5)
+            
             if not df_w_list.empty:
-                st.dataframe(df_w_list[["aspect", "est_negative"]].rename(columns={"aspect": "Pain Point", "est_negative": "Est. Complaints"}), hide_index=True, use_container_width=True)
+                df_w_list = df_w_list.rename(columns={"aspect": "Pain Point", "est_negative": "Khách chê (Est)"})
+                st.dataframe(
+                    df_w_list[["Pain Point", "Khách chê (Est)"]], 
+                    hide_index=True, 
+                    use_container_width=True,
+                    column_config={
+                        "Khách chê (Est)": st.column_config.ProgressColumn(
+                            format="%d",
+                            min_value=0,
+                            max_value=int(df_w_list["Khách chê (Est)"].max()),
+                            help="Số lượng khách hàng ước tính đang gặp vấn đề này."
+                        )
+                    }
+                )
             else:
-                st.success("No major weaknesses detected.")
+                st.success("✅ No major weaknesses detected.")
 
         with cw1:
-            st.error(f"Issues: {selected_asin}")
-            render_top_weakness(df_me_raw if 'df_me_raw' in locals() else pd.DataFrame(), selected_asin)
+            st.caption(f"Issues: {selected_asin}")
+            render_top_weakness(df_me_raw if 'df_me_raw' in locals() else pd.DataFrame())
         
         with cw2:
-            st.error(f"Issues: {challenger_asin}")
-            render_top_weakness(df_them_raw if 'df_them_raw' in locals() else pd.DataFrame(), challenger_asin)
+            st.caption(f"Issues: {challenger_asin}")
+            render_top_weakness(df_them_raw if 'df_them_raw' in locals() else pd.DataFrame())
 
-    else:
-        st.warning("No other products found in DB to compare.")
+        st.caption("ℹ️ **Khách chê (Est):** Số lượng khách hàng thực tế ước tính đang gặp vấn đề (Dựa trên tỷ lệ review tiêu cực 1-3 sao nhân với tổng số lượng khách hàng).")

@@ -25,21 +25,22 @@
 
 ### 2. Post-Deploy Stabilization
 - [x] **Critical Bug Fixes:**
-    - UI: Fixed `DeltaGenerator` magic error.
+    - UI: Fixed `DeltaGenerator` rendering issue in `Market_Intelligence.py`.
     - Common: Fixed `uuid` import error.
     - Worker: Added `/trigger/ingest` endpoint.
 
-## Phase 5: Social Scout AI & UI Polish 🛰️ [NEXT]
+## Phase 5: Social Scout AI & UI Polish 🛰️ [IN PROGRESS]
 
 ### 1. Immediate UX Polish (Priority High)
 - [ ] **Heatmap Revival (Strategy Tab):**
     - [ ] Restore missing Market Opportunity Heatmap.
     - [ ] Redesign for non-academic users (Simplified Visuals).
     - [ ] Explicit Calculation Logic (Tooltip/Legend).
-- [ ] **Showdown Tab Refinement:**
-    - [ ] Fix Legend Text (Sync 5% vs 1% threshold).
-    - [ ] Add Color Coding (Green/Red background) for Winner/Loser columns.
-    - [ ] Clarify "Market" column (Niche Average explanation).
+- [x] **Showdown Tab Refinement:**
+    - [x] **Weighted Win Logic:** Implemented `est_positive` comparison (Proven Quality).
+    - [x] **Tie-Breaker:** Added 10% threshold to avoid "Lucky Wins".
+    - [x] **Filter:** Removed "One-sided" battles (0 positive vs Positive).
+    - [x] **UI:** Replaced Volume with "Khách khen (Est)" progress bar.
 
 ### 2. Trend Bridge Engine (Social Scout)
 - [ ] **Keyword Matching:** Map Amazon Aspects <-> Social Hashtags/Keywords.

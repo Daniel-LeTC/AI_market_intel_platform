@@ -1,23 +1,27 @@
 # 🛠️ Technical Status & Context Map
 
-**Last Updated:** Jan 23, 2026 (Production Live on GCP)
+**Last Updated:** Jan 26, 2026 (Dev Session)
+
+## [2026-01-26] Feature: Showdown Tab Refinement
+- **Logic Overhaul:**
+    - Replaced "Satisfaction %" comparison with "Weighted Win" (Estimated Positive Population).
+    - **Reason:** Small sample sizes (e.g., 100% of 1 review) were beating proven quality (90% of 100 reviews).
+    - **New Metric:** `est_positive = (Positive Mentions / Sample Size) * Real Population`.
+- **Tie-Breaker:** Added 10% margin threshold. If `abs(A - B) < 10% of Max`, result is **Tie**.
+- **Battle Matrix Filter:** Only compares aspects where **BOTH** sides have `est_positive > 0`. Removes noise from one-sided features.
+- **UI:** Updated column names to "Khách khen (Est)" and added visual progress bars.
 
 ## [2026-01-23] Milestone: Production Deployment & Stabilization
 - **Deployment Status:** LIVE on GCP (`34.87.30.120`).
 - **Infrastructure:**
     - **Docker:** `docker-compose.prod.yml` (Artifact Registry images).
     - **CI/CD:** Manual scripts in `scripts/`.
-        - `deploy_build.sh`: Build & Push to GCP Artifact Registry.
-        - `deploy_remote.sh`: SCP config & Restart containers on VM.
-        - `hot_patch_all.sh`: **Fast-track fix**. Injects code directly into running containers (UI & Worker) bypassing build time.
 - **Critical Fixes:**
-    - **UI Magic Error:** Fixed `DeltaGenerator` rendering issue in `Market_Intelligence.py`.
-    - **UUID Error:** Fixed `NameError: uuid` by hot-patching `common.py` to sync with server.
-    - **Worker API:** Added missing `/trigger/ingest` endpoint to `worker_api.py`.
-    - **Config:** Optimized `.dockerignore` (Image size down to ~500MB).
+    - **UI Magic Error:** Fixed `DeltaGenerator` rendering issue.
+    - **UUID Error:** Fixed `NameError: uuid` in common.py.
 
 ## Current Branch: `ui-refactor`
-**Status:** **STABLE & PROD-READY**
+**Status:** **ACTIVE DEV**
 
 ---
 
@@ -37,16 +41,15 @@
   ```bash
   ./scripts/hot_patch_all.sh
   ```
-  *(Use this for quick logic fixes. Persistent changes must still be committed to Git).*
 
 ---
 
 ## 💾 Database State
-- **Active:** `scout_a.duckdb` (Synced & Compacted).
-- **Standby:** `scout_b.duckdb` (Synced & Compacted).
+- **Active:** `scout_b.duckdb` (Primary for Dev).
+- **Standby:** `scout_a.duckdb`.
 
 ---
 
 ## ⏭️ Next Mission (Roadmap)
-- **Immediate:** Verify Social Scout AI (Trend Bridge).
-- **Module 4:** Social Scout AI Implementation.
+- **Module 4:** Social Scout AI Implementation (Trend Bridge).
+- **UI Polish:** Heatmap Revival in Strategy Tab.
