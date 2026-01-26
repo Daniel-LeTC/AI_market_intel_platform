@@ -9,7 +9,7 @@ st.markdown("""
 Hệ thống Social Scout AI hiện đang được nâng cấp và tích hợp **Trend Bridge & Sentiment X-Ray**.
 Trang này sẽ tạm đóng để đảm bảo an toàn cho các kết nối API Scraper.
 
-**Dự kiến quay lại:** Sớm thôi bro! 🚀
+**Dự kiến quay lại:** Sớm thôi! 🚀
 """)
 
 if st.button("⬅️ Quay lại Market Intelligence"):
