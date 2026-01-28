@@ -174,14 +174,23 @@ class DataIngester:
         ]
 
         # 1. PREPARE PARENT METADATA
-        # Mapping for core product info (usually from Parent row in Excel/Scrape)
+        # Mapping for core product info + DNA fields
         mapping = {
             "asin": "asin",
             "parentasin": "parent_asin",
             "producttitle": "title", 
             "productoriginalimage": "image_url", 
             "brand": "brand",
-            "countratings": "real_total_ratings"
+            "countratings": "real_total_ratings",
+            # DNA FIELDS
+            "material": "material", "fabric": "material",
+            "niche": "main_niche", "category": "main_niche",
+            "audience": "target_audience", "target": "target_audience",
+            "design": "design_type", "style": "design_type",
+            "capacity": "size_capacity", "size": "size_capacity",
+            "line": "product_line", "series": "product_line",
+            "pieces": "num_pieces", "count": "num_pieces",
+            "pack": "pack"
         }
         
         # If 'parent_asin' column is missing, assume 'asin' is the parent
@@ -224,14 +233,18 @@ class DataIngester:
         type_map = {
             "asin": pl.Utf8, "parent_asin": pl.Utf8, "title": pl.Utf8, "brand": pl.Utf8, "image_url": pl.Utf8,
             "real_average_rating": pl.Float64, "real_total_ratings": pl.Int32, 
-            "rating_breakdown": pl.Utf8, "variation_count": pl.Int32
+            "rating_breakdown": pl.Utf8, "variation_count": pl.Int32,
+            "material": pl.Utf8, "main_niche": pl.Utf8, "target_audience": pl.Utf8,
+            "design_type": pl.Utf8, "size_capacity": pl.Utf8, "product_line": pl.Utf8,
+            "num_pieces": pl.Utf8, "pack": pl.Utf8
         }
         for col, dtype in type_map.items():
             if col not in p_df.columns:
                 p_df = p_df.with_columns(pl.lit(None).cast(dtype).alias(col))
             else:
-                p_df = p_df.with_columns(pl.col(col).cast(dtype))
+                p_df = p_df.with_columns(pl.col(col).cast(dtype, strict=False))
         
+        schema_cols = list(type_map.keys())
         p_df = p_df.select(schema_cols)
 
         # 2. PREPARE CHILD METADATA (From variations)
@@ -261,7 +274,9 @@ class DataIngester:
             INSERT INTO products (
                 asin, parent_asin, title, brand, image_url, 
                 real_average_rating, real_total_ratings, rating_breakdown, 
-                variation_count, last_updated
+                variation_count, material, main_niche, target_audience,
+                design_type, size_capacity, product_line, num_pieces, pack,
+                last_updated
             )
             SELECT 
                 asin, 
@@ -269,7 +284,9 @@ class DataIngester:
                 title, brand, image_url, 
                 real_average_rating, real_total_ratings, 
                 CAST(rating_breakdown AS JSON), 
-                variation_count, now() as last_updated
+                variation_count, material, main_niche, target_audience,
+                design_type, size_capacity, product_line, num_pieces, pack,
+                now() as last_updated
             FROM temp_p
             ON CONFLICT (asin) DO UPDATE SET
                 parent_asin = COALESCE(CAST(excluded.parent_asin AS VARCHAR), products.parent_asin),
@@ -280,6 +297,14 @@ class DataIngester:
                 real_total_ratings = COALESCE(CAST(excluded.real_total_ratings AS INTEGER), products.real_total_ratings),
                 rating_breakdown = COALESCE(CAST(excluded.rating_breakdown AS JSON), products.rating_breakdown),
                 variation_count = COALESCE(CAST(excluded.variation_count AS INTEGER), products.variation_count),
+                material = COALESCE(CAST(excluded.material AS VARCHAR), products.material),
+                main_niche = COALESCE(CAST(excluded.main_niche AS VARCHAR), products.main_niche),
+                target_audience = COALESCE(CAST(excluded.target_audience AS VARCHAR), products.target_audience),
+                design_type = COALESCE(CAST(excluded.design_type AS VARCHAR), products.design_type),
+                size_capacity = COALESCE(CAST(excluded.size_capacity AS VARCHAR), products.size_capacity),
+                product_line = COALESCE(CAST(excluded.product_line AS VARCHAR), products.product_line),
+                num_pieces = COALESCE(CAST(excluded.num_pieces AS VARCHAR), products.num_pieces),
+                pack = COALESCE(CAST(excluded.pack AS VARCHAR), products.pack),
                 last_updated = now()
         """)
 
