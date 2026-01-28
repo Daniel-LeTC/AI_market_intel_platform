@@ -354,8 +354,8 @@ class DataIngester:
         # 3. Write to Target (Exclusive access guaranteed)
         print(f"⚙️ [Ingester] Writing to {target_db.name}...")
         try:
-            if file_path.suffix == '.xlsx': df = pl.read_excel(file_path, infer_schema_length=0)
-            elif file_path.suffix == '.jsonl': df = pl.read_ndjson(file_path, infer_schema_length=0)
+            if file_path.suffix == '.xlsx': df = pl.read_excel(file_path, infer_schema_length=None)
+            elif file_path.suffix == '.jsonl': df = pl.read_ndjson(file_path, infer_schema_length=None)
             else: return {"error": "Format not supported"}
 
             if df.is_empty(): return {"rows": 0, "status": "Empty File"}
