@@ -201,10 +201,14 @@ class DataIngester:
         if "parent_asin" not in df.columns and "asin" in df.columns:
             df = df.with_columns(pl.col("asin").alias("parent_asin"))
 
-        # Build expressions dynamically
+        # Build expressions dynamically (Dedup aliases)
         exprs = []
+        added_aliases = set()
+        
         for r, d in mapping.items():
             if r in df.columns:
+                if d in added_aliases: continue # Skip if target col already mapped
+                
                 # Special handling for Rating columns to apply Regex cleaning
                 if d == "real_average_rating":
                     exprs.append(
@@ -213,6 +217,8 @@ class DataIngester:
                     )
                 else:
                     exprs.append(pl.col(r).alias(d))
+                
+                added_aliases.add(d)
         
         # Remove manual append for productrating since it's covered in mapping loop now
         # (This block was redundant/conflicting)
