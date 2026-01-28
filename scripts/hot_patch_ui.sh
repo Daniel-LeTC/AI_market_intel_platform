@@ -44,5 +44,17 @@ done
 echo "🔄 Touching main file to force Streamlit reload..."
 ssh $SSH_OPT $VM_USER@$VM_IP "docker exec $CONTAINER_NAME touch /app/scout_app/Market_Intelligence.py"
 
+# 4. Upload Staging Data (RnD File)
+STAGING_FILE="staging_data/RnD_Test_Ingest.xlsx"
+if [ -f "$STAGING_FILE" ]; then
+    echo "---------------------------------------------------"
+    echo "📤 Uploading Staging Data: $STAGING_FILE..."
+    scp $SSH_OPT "$STAGING_FILE" $VM_USER@$VM_IP:~/bright-scraper/staging_data/
+    # Ensure it's inside the container volume (if mapped) or copy it in
+    # Assuming ~/bright-scraper/staging_data is mounted to /app/staging_data in docker-compose
+    # If not mounted, we cp it in:
+    ssh $SSH_OPT $VM_USER@$VM_IP "docker cp ~/bright-scraper/staging_data/RnD_Test_Ingest.xlsx $CONTAINER_NAME:/app/staging_data/"
+fi
+
 echo "---------------------------------------------------"
 echo "✅ [Hot Patch] Done! Streamlit should auto-reload."

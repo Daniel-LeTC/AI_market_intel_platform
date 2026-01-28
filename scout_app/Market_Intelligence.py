@@ -10,7 +10,7 @@ sys.path.append(str(BASE_DIR))
 sys.path.append(str(BASE_DIR.parent))
 
 from core.auth import AuthManager
-from scout_app.ui.common import query_df, request_new_asin, get_precalc_stats
+from scout_app.ui.common import query_df, request_new_asin, get_precalc_stats, get_active_asin_list
 from scout_app.ui.tabs.overview import render_overview_tab
 from scout_app.ui.tabs.xray import render_xray_tab
 from scout_app.ui.tabs.showdown import render_showdown_tab
@@ -23,46 +23,7 @@ def main():
     # --- JUMP INTERCEPTOR (Bypass Streamlit State Conflict) ---
     # This must run BEFORE sidebar instantiation
     if "jump_table_market" in st.session_state:
-        selection = st.session_state["jump_table_market"].get("selection", {}).get("rows")
-        if selection:
-            # Fetch the ASIN list used in the table (re-query strictly for mapping)
-            # NOTE: Ideally we should persist the dataframe order, but querying sorted by ratings/asin usually matches.
-            # For robustness, we check the exact same query logic used in render_mass_mode, 
-            # OR we accept that the user clicked index X of the *previous* list.
-            
-            # Since we can't easily reconstruct the exact list here without params, 
-            # we rely on the fact that if we switch ASIN, the table disappears anyway.
-            # But we NEED the ASIN.
-            
-            # HACK: If we can't reliably map index -> ASIN here, we should have used a callback in the button.
-            # But st.dataframe doesn't support args in on_select callbacks well yet.
-            
-            # Let's try to grab the ASIN from the dataframe if it was stored? No, session_state only has selection indices.
-            
-            # FALLBACK: We must re-query the 'all_parents' list to map the index.
-            # This must match `render_mass_mode` logic: 
-            # "SELECT parent_asin ... ORDER BY MAX(real_total_ratings) DESC" is NOT what the table showed.
-            # The table showed `df_batch`.
-            
-            # CRITICAL FIX: Since we cannot map Index -> ASIN accurately without the original Dataframe,
-            # and we cannot write to the widget state to clear it...
-            # We will rely on `st.session_state.get("xray_view_mode_final")` to disable the table.
-            
-            # Wait, actually `render_mass_mode` used `df_summary`. 
-            # If we simply set the mode to "Single Product", the table won't render next time.
-            # But we need the ASIN to jump TO.
-            
-            # RE-STRATEGY: 
-            # The 'jump_table_market' widget in 'xray.py' was built from `df_summary`.
-            # `df_summary` was built from `df_batch`.
-            # `df_batch` order is consistent if `selected_list` is consistent.
-            # But `selected_list` comes from a widget too!
-            
-            # THIS IS FLAKY.
-            # BETTER APPROACH: Do nothing here.
-            # Handle the jump logic INSIDE `xray.py` using a callback or immediate check after dataframe render.
-            # We will remove this block entirely from main.py and move logic to xray.py.
-            pass
+        pass
 
     # --- AUTHENTICATION GATEKEEPER ---
     if "authenticated" not in st.session_state:
@@ -113,24 +74,20 @@ def main():
                         st.warning(msg)
 
         st.markdown("---")
-        # Load ASIN List (True Parents Only)
-        df_asins = query_df("""
-            SELECT 
-                parent_asin, 
-                real_average_rating as avg_rating 
-            FROM products 
-            WHERE asin = parent_asin
-            ORDER BY parent_asin ASC
-        """)
+        # Load ASIN List (Optimized: Only Active ASINs)
+        df_asins = get_active_asin_list()
         
         if df_asins.empty:
-            st.error("No data in DB.")
+            st.error("No active reviews in DB.")
             return
+
+        # Optimization: Pre-compute lookups for format_func (O(1) access)
+        asin_ratings = dict(zip(df_asins['parent_asin'], df_asins['avg_rating']))
 
         selected_asin = st.sidebar.selectbox(
             "Select Product (ASIN)",
             df_asins["parent_asin"].tolist(),
-            format_func=lambda x: f"{x} (⭐{df_asins[df_asins['parent_asin'] == x]['avg_rating'].values[0]})",
+            format_func=lambda x: f"{x} (⭐{asin_ratings.get(x, 'N/A')})",
             key="main_asin_selector"
         )
 

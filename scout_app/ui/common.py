@@ -210,6 +210,25 @@ def get_niche_benchmark(niche: str):
 
     return benchmark
 
+# --- NEW: Optimized ASIN List Fetcher ---
+@st.cache_data
+def get_active_asin_list():
+    """Fetch only ASINs that have reviews (Ready to Analyze) with Rating."""
+    # Using 'reviews' table ensures we only get products with data.
+    sql = """
+        SELECT 
+            p.parent_asin,
+            p.real_average_rating as avg_rating
+        FROM products p
+        JOIN (SELECT DISTINCT parent_asin FROM reviews) r ON p.asin = r.parent_asin
+        ORDER BY p.parent_asin
+    """
+    try:
+        return query_df(sql)
+    except Exception as e:
+        print(f"Error fetching active ASIN list: {e}")
+        return pd.DataFrame()
+
 
 def request_new_asin(asin_input, note="", force_update=False, user_id=None):
     """
