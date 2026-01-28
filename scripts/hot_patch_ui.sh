@@ -13,6 +13,7 @@ declare -A FILES
 FILES=(
     ["scout_app/Market_Intelligence.py"]="/app/scout_app/Market_Intelligence.py"
     ["scout_app/ui/common.py"]="/app/scout_app/ui/common.py"
+    ["scout_app/core/ingest.py"]="/app/scout_app/core/ingest.py"
 )
 
 if [ -f "$SSH_KEY" ]; then
