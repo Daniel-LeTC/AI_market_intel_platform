@@ -178,18 +178,22 @@ class DataIngester:
         mapping = {
             "asin": "asin",
             "parentasin": "parent_asin",
+            "parent asin": "parent_asin",
             "producttitle": "title", 
             "productoriginalimage": "image_url", 
             "brand": "brand",
             "countratings": "real_total_ratings",
+            "reviews: review count": "real_total_ratings",
+            "productrating": "real_average_rating",
+            "reviews: rating": "real_average_rating",
             # DNA FIELDS
             "material": "material", "fabric": "material",
-            "niche": "main_niche", "category": "main_niche",
-            "audience": "target_audience", "target": "target_audience",
-            "design": "design_type", "style": "design_type",
-            "capacity": "size_capacity", "size": "size_capacity",
-            "line": "product_line", "series": "product_line",
-            "pieces": "num_pieces", "count": "num_pieces",
+            "main niche": "main_niche", "niche": "main_niche", "category": "main_niche",
+            "target audience": "target_audience", "audience": "target_audience", "target": "target_audience",
+            "design type": "design_type", "design": "design_type", "style": "design_type",
+            "size/capacity": "size_capacity", "capacity": "size_capacity", "size": "size_capacity",
+            "product line": "product_line", "line": "product_line", "series": "product_line",
+            "number of pieces": "num_pieces", "pieces": "num_pieces", "count": "num_pieces",
             "pack": "pack"
         }
         
@@ -197,13 +201,21 @@ class DataIngester:
         if "parent_asin" not in df.columns and "asin" in df.columns:
             df = df.with_columns(pl.col("asin").alias("parent_asin"))
 
-        exprs = [pl.col(r).alias(d) for r, d in mapping.items() if r in df.columns]
+        # Build expressions dynamically
+        exprs = []
+        for r, d in mapping.items():
+            if r in df.columns:
+                # Special handling for Rating columns to apply Regex cleaning
+                if d == "real_average_rating":
+                    exprs.append(
+                        pl.col(r).cast(pl.Utf8).str.extract(r"(\d+\.?\d*)", 1)
+                        .cast(pl.Float64, strict=False).alias(d)
+                    )
+                else:
+                    exprs.append(pl.col(r).alias(d))
         
-        if "productrating" in df.columns:
-            exprs.append(
-                pl.col("productrating").cast(pl.Utf8).str.extract(r"(\d+\.?\d*)", 1)
-                .cast(pl.Float64).alias("real_average_rating")
-            )
+        # Remove manual append for productrating since it's covered in mapping loop now
+        # (This block was redundant/conflicting)
 
         # Histogram Extraction
         hist_cols = {
