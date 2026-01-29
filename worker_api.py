@@ -157,34 +157,38 @@ def run_recalc_task(asin: str = None):
         db_p = str(Settings.get_active_db_path())
         engine = StatsEngine(db_path=db_p)
         
-        if asin:
-            engine.calculate_and_save(asin)
-            logger.info(f"✅ [Recalc] Completed for {asin}")
-        else:
-            # SMART GLOBAL RECALC: Only target ASINs with fresh reviews
-            # Identify ASINs where latest review date > last stats recalc date
-            query = """
-                SELECT DISTINCT r.parent_asin 
-                FROM reviews r
-                LEFT JOIN product_stats ps ON r.parent_asin = ps.asin
-                WHERE r.mining_status = 'COMPLETED'
-                AND (ps.last_updated IS NULL OR r.ingested_at > ps.last_updated)
-            """
-            with duckdb.connect(db_p) as conn:
+        # USE SINGLE PERSISTENT CONNECTION FOR BATCH
+        with duckdb.connect(db_p) as conn:
+            if asin:
+                # Support multiple ASINs separated by comma
+                target_asins = [a.strip() for a in asin.split(',') if a.strip()]
+                logger.info(f"📊 [Recalc] Processing {len(target_asins)} targeted ASINs...")
+                for a in target_asins:
+                    engine.calculate_and_save(a, conn=conn)
+                    logger.info(f"   ✅ [Recalc] Completed for {a}")
+            else:
+                # SMART GLOBAL RECALC: Only target ASINs with fresh reviews
+                query = """
+                    SELECT DISTINCT r.parent_asin 
+                    FROM reviews r
+                    LEFT JOIN product_stats ps ON r.parent_asin = ps.asin
+                    WHERE r.mining_status = 'COMPLETED'
+                    AND (ps.last_updated IS NULL OR r.ingested_at > ps.last_updated)
+                """
                 asins_to_calc = [r[0] for r in conn.execute(query).fetchall()]
-            
-            if not asins_to_calc:
-                logger.info("✨ [Recalc] Everything is already up to date.")
-                return
+                
+                if not asins_to_calc:
+                    logger.info("✨ [Recalc] Everything is already up to date.")
+                    return
 
-            logger.info(f"📊 [Recalc] Processing {len(asins_to_calc)} ASINs with new data...")
-            for a in asins_to_calc:
-                if a: 
-                    engine.calculate_and_save(a)
-                    # Small sleep to keep CPU cool
-                    import time
-                    time.sleep(0.1)
-            logger.info(f"✅ [Recalc] Smart Global task complete.")
+                logger.info(f"📊 [Recalc] Processing {len(asins_to_calc)} ASINs with new data...")
+                for a in asins_to_calc:
+                    if a: 
+                        engine.calculate_and_save(a, conn=conn)
+                        # Small sleep to keep CPU cool (Optional)
+                        import time
+                        time.sleep(0.05)
+                logger.info(f"✅ [Recalc] Smart Global task complete.")
             
     except Exception as e:
         logger.error(f"❌ [Recalc] Failed: {e}")
@@ -227,8 +231,8 @@ def exec_cmd(req: CommandRequest):
         raise HTTPException(status_code=403, detail="Command not allowed. Please use the Dropdown Palette.")
 
     try:
-        # Run command and capture output (Timeout 60s for batch submit)
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=60)
+        # Run command and capture output (Timeout 300s for batch tasks)
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
         return {
             "cmd": cmd,
             "stdout": result.stdout,

@@ -197,35 +197,49 @@ class StatsEngine:
         df = self._query_df(conn, sql, [asin])
         return df.to_dict(orient='records')
 
-    def calculate_all(self, asin):
+    def calculate_all(self, asin, conn=None):
         """Main entry point to aggregate everything."""
+        if conn:
+            return self._calculate_logic(conn, asin)
+        
         with duckdb.connect(self.db_path) as conn:
-            data = {
-                "asin": asin,
-                "last_calc": datetime.now().isoformat(),
-                "kpis": self.calculate_kpis(conn, asin),
-                "sentiment_raw": self.calculate_sentiment_raw(conn, asin),
-                "sentiment_weighted": self.calculate_sentiment_weighted(conn, asin),
-                "rating_trend": self.calculate_rating_trend(conn, asin)
-            }
-            return data
+            return self._calculate_logic(conn, asin)
 
-    def save_to_db(self, asin, metrics_dict):
+    def _calculate_logic(self, conn, asin):
+        """Internal logic using an existing connection."""
+        return {
+            "asin": asin,
+            "last_calc": datetime.now().isoformat(),
+            "kpis": self.calculate_kpis(conn, asin),
+            "sentiment_raw": self.calculate_sentiment_raw(conn, asin),
+            "sentiment_weighted": self.calculate_sentiment_weighted(conn, asin),
+            "rating_trend": self.calculate_rating_trend(conn, asin)
+        }
+
+    def save_to_db(self, asin, metrics_dict, conn=None):
         """Upsert metrics into product_stats table."""
-        # Use a fresh connection for writing to avoid issues
-        with duckdb.connect(self.db_path) as conn:
-            json_str = json.dumps(metrics_dict)
-            now = datetime.now()
-            sql = """
-                INSERT INTO product_stats (asin, last_updated, metrics_json)
-                VALUES (?, ?, ?)
-                ON CONFLICT (asin) DO UPDATE SET 
-                    metrics_json = EXCLUDED.metrics_json,
-                    last_updated = EXCLUDED.last_updated
-            """
+        json_str = json.dumps(metrics_dict)
+        now = datetime.now()
+        sql = """
+            INSERT INTO product_stats (asin, last_updated, metrics_json)
+            VALUES (?, ?, ?)
+            ON CONFLICT (asin) DO UPDATE SET 
+                metrics_json = EXCLUDED.metrics_json,
+                last_updated = EXCLUDED.last_updated
+        """
+        if conn:
             conn.execute(sql, [asin, now, json_str])
+        else:
+            with duckdb.connect(self.db_path) as conn:
+                conn.execute(sql, [asin, now, json_str])
 
-    def calculate_and_save(self, asin):
-        data = self.calculate_all(asin)
-        self.save_to_db(asin, data)
+    def calculate_and_save(self, asin, conn=None):
+        """Single ASIN calculation and save."""
+        if conn:
+            data = self._calculate_logic(conn, asin)
+            self.save_to_db(asin, data, conn=conn)
+        else:
+            with duckdb.connect(self.db_path) as conn:
+                data = self._calculate_logic(conn, asin)
+                self.save_to_db(asin, data, conn=conn)
         return data
