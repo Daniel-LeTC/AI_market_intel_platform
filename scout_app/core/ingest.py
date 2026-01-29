@@ -179,13 +179,18 @@ class DataIngester:
             "asin": "asin",
             "parentasin": "parent_asin",
             "parent asin": "parent_asin",
+            "parent_asin": "parent_asin", # Direct map
             "producttitle": "title", 
+            "title": "title", # Direct map
             "productoriginalimage": "image_url", 
-            "brand": "brand",
+            "image_url": "image_url", # Direct map
+            "brand": "brand", # Direct map
             "countratings": "real_total_ratings",
             "reviews: review count": "real_total_ratings",
+            "real_total_ratings": "real_total_ratings", # Direct map
             "productrating": "real_average_rating",
             "reviews: rating": "real_average_rating",
+            "real_average_rating": "real_average_rating", # Direct map
             # DNA FIELDS
             "material": "material", "fabric": "material",
             "main niche": "main_niche", "niche": "main_niche", "category": "main_niche",

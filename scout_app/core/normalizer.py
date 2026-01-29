@@ -34,7 +34,7 @@ class TagNormalizer:
             FROM review_tags rt
             LEFT JOIN aspect_mapping am ON lower(trim(rt.aspect)) = lower(trim(am.raw_aspect))
             WHERE am.raw_aspect IS NULL
-            AND length(rt.aspect) BETWEEN 2 AND 40
+            AND length(rt.aspect) BETWEEN 2 AND 100
             AND rt.aspect NOT SIMILAR TO '^[0-9]+$' -- Ignore purely numeric noise
         """
         res = conn.execute(query).fetchall()
@@ -59,12 +59,14 @@ class TagNormalizer:
         You are a Data Normalizer for E-commerce Reviews. 
         Map these RAW terms to standard NOUN PHRASES.
         
+        **HANDLING LONG PHRASES:**
+        If a raw term is a long sentence (e.g., 'illustration is broken down into clear steps'), 
+        SUMMARIZE it into a succinct Noun Phrase (e.g., 'Instruction Quality').
+
         **CRITICAL CONSISTENCY RULE:**
         You MUST prioritize mapping to these EXISTING STANDARD TERMS if they fit:
         [{vocab_str}]
         
-        If no existing term fits, create a new succinct Noun Phrase (e.g., 'Softness', 'Zipper Quality').
-
         **Goal:** Group synonyms. Remove adjectives.
         - 'very soft', 'so soft', 'soft' -> 'Softness' (or existing equivalent)
         - 'great value', 'worth the price' -> 'Value for Money'

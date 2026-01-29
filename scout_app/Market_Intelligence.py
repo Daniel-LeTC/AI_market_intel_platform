@@ -3,6 +3,7 @@ from pathlib import Path
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
+import time
 
 # Add root and current dir to sys.path
 BASE_DIR = Path(__file__).resolve().parent
@@ -30,6 +31,7 @@ def main():
         st.session_state["authenticated"] = False
 
     if not st.session_state["authenticated"]:
+        # ... (login form remains same)
         c1, c2, c3 = st.columns([1, 1, 1])
         with c2:
             st.markdown("# 🔐 Login")
@@ -63,30 +65,47 @@ def main():
         st.markdown("---")
         with st.sidebar.expander("➕ Request New ASIN"):
             with st.form("req_form"):
-                new_asin = st.text_input("Enter ASIN:", placeholder="B0...")
+                new_asin_input = st.text_input("Enter ASIN:", placeholder="B0...")
                 req_note = st.text_input("Note:")
                 force_chk = st.checkbox("Force Update")
                 if st.form_submit_button("Submit"):
-                    ok, msg = request_new_asin(new_asin.strip(), req_note, force_chk, user_id=current_user_id)
+                    new_asin_clean = new_asin_input.strip()
+                    ok, msg = request_new_asin(new_asin_clean, req_note, force_chk, user_id=current_user_id)
                     if ok:
                         st.success(msg)
                     else:
+                        # SMART SWITCH: If data exists, navigate user to it
+                        if "Đã có dữ liệu" in msg:
+                            df_check = query_df("SELECT parent_asin FROM products WHERE asin = ? OR parent_asin = ? LIMIT 1", [new_asin_clean, new_asin_clean])
+                            if not df_check.empty:
+                                parent_asin = df_check.iloc[0]['parent_asin']
+                                # 1. Invalidate Cache
+                                st.session_state["last_db_update"] = time.time()
+                                # 2. Set State for Redirection
+                                st.session_state["main_asin_selector"] = parent_asin
+                                st.session_state["current_asin"] = parent_asin
+                                st.success(f"🎯 Đã tìm thấy! Đang chuyển tới ASIN Cha: {parent_asin}")
+                                time.sleep(2)
+                                st.rerun()
                         st.warning(msg)
 
         st.markdown("---")
-        # Load ASIN List (Optimized: Only Active ASINs)
-        df_asins = get_active_asin_list()
+        # Load ASIN List (Optimized with Cache Key)
+        cache_key = st.session_state.get("last_db_update", 0)
+        df_asins = get_active_asin_list(cache_key=cache_key)
         
         if df_asins.empty:
             st.error("No active reviews in DB.")
             return
 
+        active_list = df_asins["parent_asin"].tolist()
+        
         # Optimization: Pre-compute lookups for format_func (O(1) access)
         asin_ratings = dict(zip(df_asins['parent_asin'], df_asins['avg_rating']))
 
         selected_asin = st.sidebar.selectbox(
             "Select Product (ASIN)",
-            df_asins["parent_asin"].tolist(),
+            active_list,
             format_func=lambda x: f"{x} (⭐{asin_ratings.get(x, 'N/A')})",
             key="main_asin_selector"
         )
