@@ -52,7 +52,7 @@ def get_raw_sentiment_data(asin: str):
             SUM(CASE WHEN rt.sentiment = 'Positive' THEN 1 ELSE 0 END) as positive,
             SUM(CASE WHEN rt.sentiment = 'Negative' THEN 1 ELSE 0 END) as negative
         FROM review_tags rt
-        LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect
+        LEFT JOIN aspect_mapping am ON lower(trim(rt.aspect)) = lower(trim(am.raw_aspect))
         WHERE rt.parent_asin = ?
         GROUP BY 1
         HAVING (positive + negative) > 1 
@@ -93,7 +93,7 @@ def get_weighted_sentiment_data(asin: str):
                 rt.sentiment
             FROM review_tags rt
             JOIN reviews r ON rt.review_id = r.review_id
-            LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect
+            LEFT JOIN aspect_mapping am ON lower(trim(rt.aspect)) = lower(trim(am.raw_aspect))
             WHERE rt.parent_asin = ?
         ),
         aspect_stats AS (
@@ -163,7 +163,7 @@ def get_evidence_data(asin: str):
             rt.sentiment as "Sentiment", 
             rt.quote as "Evidence Quote"
         FROM review_tags rt
-        LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect
+        LEFT JOIN aspect_mapping am ON lower(trim(rt.aspect)) = lower(trim(am.raw_aspect))
         WHERE rt.parent_asin = ?
         ORDER BY rt.sentiment, "Category"
         LIMIT 200
@@ -212,16 +212,16 @@ def get_niche_benchmark(niche: str):
 
 # --- NEW: Optimized ASIN List Fetcher ---
 @st.cache_data
-def get_active_asin_list():
-    """Fetch only ASINs that have reviews (Ready to Analyze) with Rating."""
-    # Using 'reviews' table ensures we only get products with data.
+def get_active_asin_list(cache_key=None):
+    """Fetch only unique Parent ASINs that have reviews."""
+    # cache_key is used to invalidate cache when data changes
     sql = """
-        SELECT 
-            p.parent_asin,
+        SELECT DISTINCT 
+            p.asin as parent_asin, 
             p.real_average_rating as avg_rating
         FROM products p
-        JOIN (SELECT DISTINCT parent_asin FROM reviews) r ON p.asin = r.parent_asin
-        ORDER BY p.parent_asin
+        JOIN reviews r ON p.asin = r.parent_asin
+        ORDER BY p.asin
     """
     try:
         return query_df(sql)
