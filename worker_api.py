@@ -1,11 +1,13 @@
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel
 import uvicorn
 import logging
 import os
 import sys
 import subprocess
-from typing import List
+from datetime import datetime
+from typing import List, Dict, Optional
+from pathlib import Path
 
 # Ensure root is in path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -15,6 +17,8 @@ from scout_app.core.miner import AIMiner
 from scout_app.core.normalizer import TagNormalizer
 from scout_app.core.scraper import AmazonScraper
 from scout_app.core.ingest import DataIngester
+from scout_app.core.config import Settings
+from scout_app.core.stats_engine import StatsEngine
 
 # NEW: Import Routers
 from scout_app.routers import social
@@ -44,6 +48,13 @@ app.include_router(social.router)
 class ScrapeRequest(BaseModel):
     asins: List[str]
 
+class ParentFinderRequest(BaseModel):
+    asins: List[str]
+    category: Optional[str] = None
+
+class ProductDetailsRequest(BaseModel):
+    asins: List[str]
+
 class IngestRequest(BaseModel):
     file_path: str
 
@@ -60,6 +71,32 @@ def run_miner_task(limit: int):
     except Exception as e:
         logger.error(f"❌ [Miner] Failed: {e}")
 
+def run_parent_finder_task(asins: List[str], category: str = None):
+    log_path = Path("scout_app/logs/worker.log")
+    with open(log_path, "a") as f:
+        f.write(f"\n--- {datetime.now()} | ParentFinder Start: {asins} (Category: {category or 'Automatic'}) ---\n")
+        f.flush()
+        try:
+            cmd = ["python", "scripts/worker_parent_asin.py"] + asins
+            if category:
+                cmd.extend(["--category", category])
+            subprocess.run(cmd, check=True, stdout=f, stderr=f)
+            f.write(f"--- {datetime.now()} | ParentFinder Completed ---\n")
+        except Exception as e:
+            f.write(f"--- {datetime.now()} | ParentFinder Failed: {e} ---\n")
+
+def run_apify_details_task(asins: List[str]):
+    log_path = Path("scout_app/logs/worker.log")
+    with open(log_path, "a") as f:
+        f.write(f"\n--- {datetime.now()} | ApifyDetails Start: {asins} ---\n")
+        f.flush()
+        try:
+            cmd = ["python", "scripts/worker_product_details.py"] + asins
+            subprocess.run(cmd, check=True, stdout=f, stderr=f)
+            f.write(f"--- {datetime.now()} | ApifyDetails Completed ---\n")
+        except Exception as e:
+            f.write(f"--- {datetime.now()} | ApifyDetails Failed: {e} ---\n")
+
 def run_janitor_task():
     logger.info(f"🧹 [Janitor] Starting Job...")
     try:
@@ -70,7 +107,7 @@ def run_janitor_task():
         logger.error(f"❌ [Janitor] Failed: {e}")
 
 def run_scraper_task(asins: List[str]):
-    logger.info(f"🕷️ [Scraper] Starting for {len(asins)} ASINs: {asins}...")
+    logger.info(f"🕷️ [Scraper] Starting deep scrape for {len(asins)} ASINs")
     try:
         scraper = AmazonScraper()
         file_path = scraper.run_deep_scrape(asins)
@@ -143,6 +180,22 @@ def trigger_scrape(req: ScrapeRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(run_scraper_task, asins)
     return {"status": "accepted", "job": "scrape", "target": asins}
 
+@app.post("/trigger/find_parents", status_code=202)
+def trigger_find_parents(req: ParentFinderRequest, background_tasks: BackgroundTasks):
+    asins = [a.strip() for a in req.asins if a.strip()]
+    if not asins:
+        raise HTTPException(status_code=400, detail="No ASINs provided")
+    background_tasks.add_task(run_parent_finder_task, asins, req.category)
+    return {"status": "accepted", "job": "find_parents", "target": asins, "category": req.category}
+
+@app.post("/trigger/product_details", status_code=202)
+def trigger_product_details(req: ProductDetailsRequest, background_tasks: BackgroundTasks):
+    asins = [a.strip() for a in req.asins if a.strip()]
+    if not asins:
+        raise HTTPException(status_code=400, detail="No ASINs provided")
+    background_tasks.add_task(run_apify_details_task, asins)
+    return {"status": "accepted", "job": "product_details", "target": asins}
+
 @app.post("/trigger/ingest", status_code=202)
 def trigger_ingest(req: IngestRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(run_ingest_task, req.file_path)
@@ -168,14 +221,20 @@ def run_recalc_task(asin: str = None):
                     logger.info(f"   ✅ [Recalc] Completed for {a}")
             else:
                 # SMART GLOBAL RECALC: Only target ASINs with fresh reviews
-                query = """
                     SELECT DISTINCT r.parent_asin 
                     FROM reviews r
                     LEFT JOIN product_stats ps ON r.parent_asin = ps.asin
+                    LEFT JOIN (
+                        SELECT parent_asin, MAX(created_at) as max_created 
+                        FROM review_tags 
+                        GROUP BY 1
+                    ) rt ON r.parent_asin = rt.parent_asin
                     WHERE r.mining_status = 'COMPLETED'
-                    AND (ps.last_updated IS NULL OR r.ingested_at > ps.last_updated)
-                """
-                asins_to_calc = [r[0] for r in conn.execute(query).fetchall()]
+                    AND (
+                        ps.last_updated IS NULL 
+                        OR r.ingested_at >= ps.last_updated
+                        OR rt.max_created >= ps.last_updated
+                    )
                 
                 if not asins_to_calc:
                     logger.info("✨ [Recalc] Everything is already up to date.")

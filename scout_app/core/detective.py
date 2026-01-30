@@ -56,27 +56,51 @@ class DetectiveAgent:
         except Exception:
             return []
 
+    def _normalize_asin(self, asin: str) -> str:
+        """Always returns the Parent ASIN for a given Child or Parent."""
+        if not asin: return ""
+        query = "SELECT parent_asin FROM products WHERE asin = ? OR parent_asin = ? LIMIT 1"
+        res = self._run_query(query, [asin, asin])
+        if not res.empty:
+            return res.iloc[0]['parent_asin']
+        return asin
+
     # --- TOOLS DEFINITION ---
     
     def get_product_dna(self, asin: str) -> str:
+        parent_asin = self._normalize_asin(asin)
+        
         # 1. Base Metadata
         query_meta = """
             SELECT title, material, main_niche, target_audience, size_capacity, brand 
             FROM products 
-            WHERE asin = ? OR parent_asin = ?
+            WHERE asin = ?
             LIMIT 1
         """
         # 2. Get Pre-calculated Stats
         query_stats = "SELECT metrics_json FROM product_stats WHERE asin = ?"
         
         try:
-            df_meta = self._run_query(query_meta, [asin, asin])
-            res_stats = self._run_query(query_stats, [asin], fetch_df=False)
+            # 1a. Try to get ENRICHED metadata from product_parents first
+            query_parent = """
+                SELECT category as main_niche, niche, title, brand, image_url 
+                FROM product_parents WHERE parent_asin = ?
+            """
+            parent_res = self._run_query(query_parent, [parent_asin])
             
-            result = {}
+            # 1b. Fallback to products metadata
+            df_meta = self._run_query(query_meta, [parent_asin])
+            
+            result = {"requested_asin": asin, "parent_asin": parent_asin}
             if not df_meta.empty:
                 result.update(df_meta.iloc[0].to_dict())
             
+            # Overwrite with parent metadata if available (it's the standardized source)
+            if not parent_res.empty:
+                result.update({k: v for k, v in parent_res.iloc[0].to_dict().items() if v})
+            
+            # 2. Add Stats
+            res_stats = self._run_query(query_stats, [parent_asin], fetch_df=False)
             if res_stats:
                 stats = json.loads(res_stats[0][0])
                 result["OFFICIAL_MARKET_STATS"] = {
@@ -85,8 +109,8 @@ class DetectiveAgent:
                     "variation_count": stats.get("kpis", {}).get("total_variations"),
                     "negative_review_percentage": stats.get("kpis", {}).get("neg_pct")
                 }
-                result["TOP_STRENGTHS"] = [a['aspect'] for a in stats.get("sentiment_weighted", []) if a['net_impact'] > 0][:5]
-                result["TOP_WEAKNESSES"] = [a['aspect'] for a in stats.get("sentiment_weighted", []) if a['net_impact'] < 0][-5:]
+                result["TOP_STRENGTHS"] = [a['aspect'] for a in stats.get("sentiment_weighted", []) if a.get('net_impact', 0) > 0][:5]
+                result["TOP_WEAKNESSES"] = [a['aspect'] for a in stats.get("sentiment_weighted", []) if a.get('net_impact', 0) < 0][-5:]
             
             if not result:
                 return f"No data found for ASIN {asin}."
@@ -96,20 +120,27 @@ class DetectiveAgent:
             return f"Error getting DNA for {asin}: {e}"
 
     def search_review_evidence(self, asin: str, aspect: str = None, sentiment: str = None, keyword: str = None) -> str:
+        parent_asin = self._normalize_asin(asin)
         clauses = ["rt.parent_asin = ?"]
-        params = [asin]
+        params = [parent_asin]
+
+        # Standardized Aspect Filter (Case-insensitive & Trimmed)
+        if aspect:
+            # FIX: Relaxed filter to match EITHER Standard Mapping OR Raw Aspect
+            # This handles cases where mapping is missing OR user asks for a specific raw term
+            clauses.append("(lower(trim(am.standard_aspect)) = lower(trim(?)) OR lower(trim(rt.aspect)) = lower(trim(?)))")
+            params.append(aspect)
+            params.append(aspect)
 
         if sentiment:
             clauses.append("rt.sentiment = ?")
             params.append(sentiment)
-        if aspect:
-            clauses.append("am.standard_aspect ILIKE ?")
-            params.append(f"%{aspect}%")
+            
         if keyword:
             k_list = [k.strip() for k in keyword.split(',')]
             or_clauses = []
             for k in k_list:
-                or_clauses.append("(rt.quote ILIKE ? OR r.variation_text ILIKE ?)")
+                or_clauses.append("(rt.quote ILIKE ? OR r.text ILIKE ?)") # Updated to r.text
                 params.append(f"%{k}%")
                 params.append(f"%{k}%")
             clauses.append("(" + " OR ".join(or_clauses) + ")")
@@ -125,10 +156,10 @@ class DetectiveAgent:
                 CAST(r.review_date AS VARCHAR) as review_date
             FROM review_tags rt
             JOIN reviews r ON rt.review_id = r.review_id
-            LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect
+            LEFT JOIN aspect_mapping am ON lower(trim(rt.aspect)) = lower(trim(am.raw_aspect))
             WHERE {where_stmt}
             ORDER BY r.review_date DESC
-            LIMIT 30
+            LIMIT 50
         """
         try:
             res = self._run_query(query, params)
@@ -139,18 +170,36 @@ class DetectiveAgent:
             return f"Query Error: {e}"
 
     def find_better_alternatives(self, current_asin: str, aspect_criteria: str = "Quality") -> str:
+        parent_asin = self._normalize_asin(current_asin)
         try:
-            niche_query = "SELECT main_niche FROM products WHERE asin = ? OR parent_asin = ? LIMIT 1"
-            niche_df = self._run_query(niche_query, [current_asin, current_asin])
+            niche_query = """
+                SELECT 
+                    COALESCE(pp.niche, p.main_niche) as niche,
+                    pp.category
+                FROM products p 
+                LEFT JOIN product_parents pp ON p.parent_asin = pp.parent_asin
+                WHERE p.asin = ?
+                LIMIT 1
+            """
+            niche_df = self._run_query(niche_query, [parent_asin])
             
-            if niche_df.empty or not niche_df.iloc[0]['main_niche']:
+            if niche_df.empty or (not niche_df.iloc[0]['niche'] and not niche_df.iloc[0]['category']):
                 return "Cannot find alternatives: The current product has no defined Niche/Category."
             
-            niche = niche_df.iloc[0]['main_niche']
+            niche = niche_df.iloc[0]['niche']
+            category = niche_df.iloc[0]['category']
+            
             aspect_filter = ""
             if aspect_criteria and aspect_criteria != "Overall":
                 aspect_filter = f"AND (am.category = '{aspect_criteria}' OR am.standard_aspect = '{aspect_criteria}')"
             
+            # Match by Niche first, fallback to Category
+            match_clause = "COALESCE(pp.niche, p.main_niche) = ?"
+            match_param = niche
+            if not niche:
+                match_clause = "pp.category = ?"
+                match_param = category
+
             query = f"""
                 SELECT 
                     p.parent_asin,
@@ -158,9 +207,10 @@ class DetectiveAgent:
                     COUNT(*) as total_mentions,
                     ROUND(SUM(CASE WHEN rt.sentiment = 'Positive' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 1) as positive_score
                 FROM products p
+                LEFT JOIN product_parents pp ON p.parent_asin = pp.parent_asin
                 JOIN review_tags rt ON p.parent_asin = rt.parent_asin
                 LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect
-                WHERE p.main_niche = ?
+                WHERE {match_clause}
                 AND p.parent_asin != ?
                 {aspect_filter}
                 GROUP BY 1, 2
@@ -168,7 +218,7 @@ class DetectiveAgent:
                 ORDER BY positive_score DESC
                 LIMIT 3
             """
-            res = self._run_query(query, [niche, current_asin])
+            res = self._run_query(query, [match_param, current_asin])
             if res.empty:
                 return f"No better alternatives found specifically for '{aspect_criteria}' in niche '{niche}'."
             return res.to_json(orient='records')
@@ -176,6 +226,7 @@ class DetectiveAgent:
             return f"Market Scout Error: {e}"
 
     def get_product_swot(self, asin: str) -> str:
+        parent_asin = self._normalize_asin(asin)
         try:
             query = """
                 SELECT 
@@ -191,24 +242,32 @@ class DetectiveAgent:
                 HAVING mentions >= 3
                 ORDER BY mentions DESC
             """
-            df = self._run_query(query, [asin])
+            df = self._run_query(query, [parent_asin])
             
             if df.empty:
-                return f"No sentiment data found for ASIN {asin}."
+                return f"No sentiment data found for ASIN {parent_asin}."
 
             swot = {"strengths": [], "weaknesses": [], "controversial": [], "summary": {}}
             
-            # --- FIX: Use REAL METADATA instead of sample average ---
-            meta_stats = self._run_query("""
-                SELECT real_average_rating, real_total_ratings 
-                FROM products WHERE asin = ? OR parent_asin = ? 
-                ORDER BY (asin = parent_asin) DESC LIMIT 1
-            """, [asin, asin]).iloc[0]
+            # --- FIX: Use REAL METADATA from product_stats if available ---
+            stats_res = self._run_query("SELECT metrics_json FROM product_stats WHERE asin = ?", [parent_asin], fetch_df=False)
             
-            swot["summary"] = {
-                "avg_rating": round(float(meta_stats['real_average_rating'] or 0), 2),
-                "total_reviews": int(meta_stats['real_total_ratings'] or 0)
-            }
+            if stats_res:
+                stats = json.loads(stats_res[0][0])
+                swot["summary"] = {
+                    "avg_rating": round(stats.get("kpis", {}).get("avg_rating", 0), 2),
+                    "total_reviews": int(stats.get("kpis", {}).get("total_reviews", 0))
+                }
+            else:
+                # Fallback to products table
+                meta_stats = self._run_query("""
+                    SELECT real_average_rating, real_total_ratings 
+                    FROM products WHERE asin = ? 
+                """, [parent_asin]).iloc[0]
+                swot["summary"] = {
+                    "avg_rating": round(float(meta_stats['real_average_rating'] or 0), 2),
+                    "total_reviews": int(meta_stats['real_total_ratings'] or 0)
+                }
 
             for _, row in df.iterrows():
                 item = {
@@ -237,6 +296,9 @@ class DetectiveAgent:
             return f"SWOT Error: {e}"
 
     def compare_head_to_head(self, asin_a: str, asin_b: str) -> str:
+        parent_a = self._normalize_asin(asin_a)
+        parent_b = self._normalize_asin(asin_b)
+        
         query = f"""
             WITH stats AS (
                 SELECT 
@@ -246,15 +308,15 @@ class DetectiveAgent:
                     ROUND(SUM(CASE WHEN rt.sentiment = 'Positive' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 1) as pos_pct
                 FROM review_tags rt
                 LEFT JOIN aspect_mapping am ON lower(trim(rt.aspect)) = lower(trim(am.raw_aspect))
-                WHERE rt.parent_asin IN ('{asin_a}', '{asin_b}')
+                WHERE rt.parent_asin IN ('{parent_a}', '{parent_b}')
                 GROUP BY 1, 2
                 HAVING total >= 2
             )
             SELECT aspect,
-                MAX(CASE WHEN parent_asin = '{asin_a}' THEN pos_pct END) as score_a,
-                MAX(CASE WHEN parent_asin = '{asin_b}' THEN pos_pct END) as score_b,
-                MAX(CASE WHEN parent_asin = '{asin_a}' THEN total END) as mentions_a,
-                MAX(CASE WHEN parent_asin = '{asin_b}' THEN total END) as mentions_b
+                MAX(CASE WHEN parent_asin = '{parent_a}' THEN pos_pct END) as score_a,
+                MAX(CASE WHEN parent_asin = '{parent_b}' THEN pos_pct END) as score_b,
+                MAX(CASE WHEN parent_asin = '{parent_a}' THEN total END) as mentions_a,
+                MAX(CASE WHEN parent_asin = '{parent_b}' THEN total END) as mentions_b
             FROM stats
             GROUP BY 1
             HAVING score_a IS NOT NULL AND score_b IS NOT NULL
@@ -270,6 +332,7 @@ class DetectiveAgent:
             return f"Comparison Error: {e}"
 
     def analyze_customer_context(self, asin: str) -> str:
+        parent_asin = self._normalize_asin(asin)
         targets = {
             "End-User: Kids/Teens": ["daughter", "son", "kid", "child", "teen", "girl", "boy", "granddaughter", "grandson"],
             "End-User: Adults/Self": ["master bedroom", "myself", "husband", "wife", "we"],
@@ -284,17 +347,15 @@ class DetectiveAgent:
         results = {"target_audience": {}, "usage_occasion": {}}
         
         try:
-            # We can run these counts using fetchall via _run_query helper modification or loop
-            # Using loop with dataframe count for simplicity and consistency
             for group, keywords in targets.items():
                 kw_str = " OR ".join([f"text ILIKE '%{k}%'" for k in keywords])
-                df = self._run_query(f"SELECT COUNT(*) as c FROM reviews WHERE parent_asin = ? AND ({kw_str})", [asin])
+                df = self._run_query(f"SELECT COUNT(*) as c FROM reviews WHERE parent_asin = ? AND ({kw_str})", [parent_asin])
                 count = df.iloc[0]['c'] if not df.empty else 0
                 if count > 0: results["target_audience"][group] = int(count)
 
             for group, keywords in occasions.items():
                 kw_str = " OR ".join([f"text ILIKE '%{k}%'" for k in keywords])
-                df = self._run_query(f"SELECT COUNT(*) as c FROM reviews WHERE parent_asin = ? AND ({kw_str})", [asin])
+                df = self._run_query(f"SELECT COUNT(*) as c FROM reviews WHERE parent_asin = ? AND ({kw_str})", [parent_asin])
                 count = df.iloc[0]['c'] if not df.empty else 0
                 if count > 0: results["usage_occasion"][group] = int(count)
 
@@ -304,30 +365,33 @@ class DetectiveAgent:
 
     def generate_listing_content(self, asin: str, tone: str = "Persuasive") -> str:
         """Generates SEO Title and 5 Bullet Points based on Pain Points & Strengths."""
+        parent_asin = self._normalize_asin(asin)
         try:
             # 1. Get DNA
-            dna_query = "SELECT title, material, main_niche, target_audience FROM products WHERE asin = ? OR parent_asin = ? LIMIT 1"
-            dna_df = self._run_query(dna_query, [asin, asin])
+            dna_query = "SELECT title, material, main_niche, target_audience FROM products WHERE asin = ? LIMIT 1"
+            dna_df = self._run_query(dna_query, [parent_asin])
             dna_str = dna_df.iloc[0].to_json() if not dna_df.empty else "N/A"
 
             # 2. Get Top Pain Points (to solve)
             pain_query = """
                 SELECT COALESCE(am.standard_aspect, rt.aspect) as aspect, COUNT(*) as cnt 
-                FROM review_tags rt LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect 
+                FROM review_tags rt 
+                LEFT JOIN aspect_mapping am ON lower(trim(rt.aspect)) = lower(trim(am.raw_aspect)) 
                 WHERE rt.parent_asin = ? AND rt.sentiment = 'Negative' 
                 GROUP BY 1 ORDER BY 2 DESC LIMIT 5
             """
-            pain_df = self._run_query(pain_query, [asin])
+            pain_df = self._run_query(pain_query, [parent_asin])
             pain_str = ", ".join(pain_df['aspect'].tolist()) if not pain_df.empty else "None"
 
             # 3. Get Top Strengths (to highlight)
             pos_query = """
                 SELECT COALESCE(am.standard_aspect, rt.aspect) as aspect, COUNT(*) as cnt 
-                FROM review_tags rt LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect 
+                FROM review_tags rt 
+                LEFT JOIN aspect_mapping am ON lower(trim(rt.aspect)) = lower(trim(am.raw_aspect)) 
                 WHERE rt.parent_asin = ? AND rt.sentiment = 'Positive' 
                 GROUP BY 1 ORDER BY 2 DESC LIMIT 5
             """
-            pos_df = self._run_query(pos_query, [asin])
+            pos_df = self._run_query(pos_query, [parent_asin])
             pos_str = ", ".join(pos_df['aspect'].tolist()) if not pos_df.empty else "None"
 
             return json.dumps({
@@ -342,17 +406,29 @@ class DetectiveAgent:
 
     def analyze_competitors(self, asin: str) -> str:
         """Finds real competitors in DB using Smart Fallback (Niche -> Line/Material) and compares them."""
+        parent_asin = self._normalize_asin(asin)
         try:
-            # 1. Get DNA of Current Product
-            dna_query = "SELECT parent_asin, main_niche, product_line, material, target_audience FROM products WHERE asin = ? OR parent_asin = ? LIMIT 1"
-            dna_df = self._run_query(dna_query, [asin, asin])
+            # 1. Get DNA of Current Product (Preferring product_parents for Category/Niche)
+            dna_query = """
+                SELECT 
+                    p.parent_asin, 
+                    COALESCE(pp.category, p.main_niche) as category, 
+                    pp.niche,
+                    p.product_line, p.material, p.target_audience 
+                FROM products p
+                LEFT JOIN product_parents pp ON p.parent_asin = pp.parent_asin
+                WHERE p.asin = ?
+                LIMIT 1
+            """
+            dna_df = self._run_query(dna_query, [parent_asin])
             
             if dna_df.empty:
                 return "Product DNA not found. Cannot identify competitors."
             
             dna = dna_df.iloc[0]
             current_parent = dna['parent_asin']
-            niche = dna['main_niche']
+            category = dna['category']
+            niche = dna['niche']
             line = dna['product_line']
             mat = dna['material']
 
@@ -360,9 +436,13 @@ class DetectiveAgent:
             params = [current_parent]
             conditions = []
             
-            # Tier 1: Niche Match (If valid)
+            # Tier 0: Niche Match (Strongest)
             if niche and niche not in ['None', 'Non-defined', 'null', None]:
-                conditions.append(f"main_niche = '{niche}'")
+                conditions.append(f"COALESCE(pp.niche, p.main_niche) = '{niche}'")
+            
+            # Tier 1: Category Match
+            if category and category not in ['None', 'Non-defined', 'null', None]:
+                conditions.append(f"pp.category = '{category}'")
             
             # Tier 2: Line + Material Match (Fallback)
             if line and mat:
@@ -375,15 +455,16 @@ class DetectiveAgent:
             
             comp_query = f"""
                 SELECT 
-                    p.parent_asin, 
-                    ANY_VALUE(p.title) as title, 
-                    ANY_VALUE(p.brand) as brand, 
+                    pp.parent_asin, 
+                    COALESCE(pp.title, ANY_VALUE(p.title)) as title, 
+                    COALESCE(pp.brand, ANY_VALUE(p.brand)) as brand, 
                     MAX(p.real_average_rating) as rating, 
                     MAX(p.real_total_ratings) as reviews
                 FROM products p
+                LEFT JOIN product_parents pp ON p.parent_asin = pp.parent_asin
                 WHERE p.parent_asin != ? 
-                AND ({where_clause})
-                GROUP BY p.parent_asin
+                AND ({where_clause.replace("main_niche", "COALESCE(pp.category, p.main_niche)")})
+                GROUP BY pp.parent_asin, pp.title, pp.brand
                 HAVING reviews > 5
                 ORDER BY rating DESC, reviews DESC
                 LIMIT 3

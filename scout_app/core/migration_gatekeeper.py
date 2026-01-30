@@ -1,5 +1,5 @@
 import duckdb
-from config import Settings
+from .config import Settings
 
 def migrate_gatekeeper():
     """
@@ -16,6 +16,14 @@ def migrate_gatekeeper():
             note VARCHAR,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS product_parents (
+            parent_asin VARCHAR PRIMARY KEY,
+            category VARCHAR,
+            title VARCHAR,
+            brand VARCHAR,
+            image_url VARCHAR,
+            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """
     

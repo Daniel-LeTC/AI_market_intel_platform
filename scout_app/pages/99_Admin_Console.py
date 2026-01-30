@@ -129,66 +129,27 @@ st.title("🛡️ Gatekeeper Control Center")
 active_db = os.path.basename(get_db_path())
 st.caption(f"Welcome, **{st.session_state['username']}** | Connected to: `{active_db}`")
 
+# --- SIDEBAR CONTROLS ---
+with st.sidebar:
+    st.header("⚙️ Admin Tools")
+    if st.button("🔄 Refresh Dashboard Data"):
+        st.session_state["last_db_update"] = time.time()
+        st.cache_data.clear() # Nuclear option to be sure
+        st.success("✅ Cache Cleared! Dashboard will reload.")
+    
+    st.divider()
+    if st.button("🚪 Logout"):
+        st.session_state["authenticated"] = False
+        st.rerun()
+
 # Tabs
-tab_dash, tab_req, tab_scrape, tab_staging, tab_ai, tab_logs = st.tabs(
-    ["🚀 Pipeline Dashboard", "📥 User Requests", "🕷️ Scrape Room", "📦 Staging Area", "🧠 AI Operations", "📟 Terminal"]
+tab_scrape, tab_staging, tab_ingest, tab_ai, tab_stats, tab_orch, tab_logs = st.tabs(
+    ["🕷️ Scrape Room", "📦 Staging Area", "📥 Ingest Lab", "🧠 AI Operations", "📊 Stats Engine", "🚀 Orchestrator", "📟 Terminal"]
 )
 
-# --- TAB 0: PIPELINE DASHBOARD ---
-with tab_dash:
-    st.header("Pipeline Health Monitor")
-    pipe = get_pipeline_stats()
-    
-    # 1. High Level Metrics
-    m1, m2, m3 = st.columns(3)
-    with m1:
-        revs = pipe.get('reviews', {})
-        st.metric("Pending Reviews", revs.get('PENDING', 0), help="New reviews waiting for AI")
-        st.metric("Mining in Progress", revs.get('QUEUED', 0), delta_color="off")
-    with m2:
-        st.metric("Janitor Debt", f"{pipe.get('unmapped_count', 0)} aspects", help="Aspects waiting for standardization")
-    with m3:
-        st.metric("Stale Dashboards", len(pipe.get('recalc_list', [])), help="ASINs with new data but old stats")
-
-    # 2. Action Lists
-    c1, c2 = st.columns(2)
-    with c1:
-        st.subheader("🧹 Dirty Aspects (Sample)")
-        if pipe.get('unmapped_count', 0) > 0:
-            df_dirty = query_df("""
-                SELECT aspect, COUNT(*) as mentions 
-                FROM review_tags rt
-                LEFT JOIN aspect_mapping am ON lower(trim(rt.aspect)) = lower(trim(am.raw_aspect))
-                WHERE am.raw_aspect IS NULL AND length(rt.aspect) BETWEEN 2 AND 40
-                GROUP BY 1 ORDER BY 2 DESC LIMIT 10
-            """)
-            st.dataframe(df_dirty, use_container_width=True, hide_index=True)
-            st.info("💡 Go to 'AI Operations' to run Janitor.")
-        else:
-            st.success("All aspects are clean!")
-
-    with c2:
-        st.subheader("📊 Recalc Queue")
-        recalc_list = pipe.get('recalc_list', [])
-        if recalc_list:
-            st.write(f"The following **{len(recalc_list)}** ASINs need a stats refresh:")
-            st.code(", ".join(recalc_list[:20]) + ("..." if len(recalc_list) > 20 else ""), language="text")
-            if st.button("🚀 Trigger Smart Recalc Now", type="primary"):
-                try:
-                    res = requests.post(f"{WORKER_URL}/trigger/recalc", timeout=5)
-                    if res.status_code == 202:
-                        st.toast("Smart Recalc Dispatched!")
-                        time.sleep(1)
-                        st.rerun()
-                except:
-                    st.error("Worker Offline")
-        else:
-            st.success("All dashboards are fresh!")
-
-# --- TAB 0: USER REQUESTS ---
-with tab_req:
-    st.header("ASIN Request Queue")
-
+# --- TAB 1: SCRAPE ROOM (includes User Requests) ---
+with tab_scrape:
+    st.header("1. ASIN Request Queue")
     # Load data
     df_req = query_df(
         "SELECT request_id, asin, note, priority, status, created_at FROM scrape_queue WHERE status = 'PENDING_APPROVAL' ORDER BY created_at DESC"
@@ -199,224 +160,185 @@ with tab_req:
     else:
         # Add 'Select' column for checkbox UI
         df_req.insert(0, "Select", False)
-
-        st.caption("Double-click cells to Edit ASIN/Note. Tick 'Select' to Approve in Batch.")
-
-        # Editable Dataframe
+        st.caption("Approve requests here to move them to the Scrape Engine.")
         edited_df = st.data_editor(
             df_req,
             column_config={
                 "Select": st.column_config.CheckboxColumn("Approve?", default=False),
-                "request_id": st.column_config.TextColumn("ID", disabled=True),
-                "asin": st.column_config.TextColumn("ASIN (Editable)", help="Change Child to Parent ASIN here"),
-                "status": st.column_config.TextColumn("Status", disabled=True),
-                "created_at": st.column_config.DatetimeColumn("Requested At", disabled=True, format="D MMM, HH:mm"),
+                "asin": st.column_config.TextColumn("ASIN"),
             },
             hide_index=True,
             use_container_width=True,
             num_rows="dynamic",
             key="req_editor",
         )
-
-        col_act1, col_act2 = st.columns([1, 4])
-        with col_act1:
-            if st.button("🚀 Approve Selected", type="primary"):
-                # Filter selected rows
-                selected_rows = edited_df[edited_df["Select"] == True]
-
-                if selected_rows.empty:
-                    st.warning("Please tick at least one row.")
-                else:
-                    approved_asins = []
-                    for index, row in selected_rows.iterrows():
-                        # Update DB
-                        sql_update = """
-                            UPDATE scrape_queue 
-                            SET status = 'READY_TO_SCRAPE', asin = ?, note = ?
-                            WHERE request_id = ?
-                        """
-                        execute_sql(sql_update, [row["asin"], row["note"], row["request_id"]])
-                        approved_asins.append(row["asin"])
-
-                    # Store in session state to trigger scrape in Tab 1 or here directly
-                    st.session_state["approved_batch"] = approved_asins
-                    st.success(f"✅ Approved {len(approved_asins)} items!")
-                    st.rerun()
-
-        with col_act2:
-            if st.button("🗑️ Reject Selected", type="secondary"):
-                selected_rows = edited_df[edited_df["Select"] == True]
-                if not selected_rows.empty:
-                    for _, row in selected_rows.iterrows():
-                        execute_sql(
-                            "UPDATE scrape_queue SET status = 'REJECTED' WHERE request_id = ?", [row["request_id"]]
-                        )
-                    st.success("Moved to Rejected.")
-                    time.sleep(1)
-                    st.rerun()
-
-    # --- AUTO-LAUNCH SECTION (Post-Approval) ---
-    if "approved_batch" in st.session_state and st.session_state["approved_batch"]:
-        st.divider()
-        st.info(f"🚀 **Ready to Launch:** {len(st.session_state['approved_batch'])} ASINs pending execution.")
-        st.code(", ".join(st.session_state["approved_batch"]), language="text")
-
-        c_launch, c_clear = st.columns([1, 4])
-        with c_launch:
-            if st.button("🔥 Launch Scraper Now", type="primary"):
-                try:
-                    payload = {"asins": st.session_state["approved_batch"]}
-                    res = requests.post(f"{WORKER_URL}/trigger/scrape", json=payload, timeout=5)
-                    if res.status_code == 202:
-                        st.success(f"✅ Scraper Dispatched! Status: {res.json().get('status')}")
-                        # Update status to PROCESSING
-                        placeholders = ",".join(["?" ] * len(st.session_state["approved_batch"]))
-                        execute_sql(
-                            f"UPDATE scrape_queue SET status = 'PROCESSING' WHERE asin IN ({placeholders}) AND status = 'READY_TO_SCRAPE'",
-                            st.session_state["approved_batch"],
-                        )
-                        del st.session_state["approved_batch"]
-                        time.sleep(2)
-                        st.rerun()
-                    else:
-                        st.error(f"Failed: {res.text}")
-                except Exception as e:
-                    st.error(f"Worker connection failed: {e}")
-        with c_clear:
-            if st.button("Cancel / Clear"):
-                del st.session_state["approved_batch"]
-                st.rerun()
-
-# --- TAB 1: SCRAPE ROOM ---
-with tab_scrape:
-    st.header("Hot Plug Scraper")
-    st.info("Files will be downloaded to Staging Area. They are NOT ingested automatically.")
-
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        asins_input = st.text_area("Enter ASINs (one per line or comma separated)", height=100)
-    with col2:
-        st.write("")  # Spacer
-        st.write("")
-        scrape_btn = st.button("🚀 Launch Scraper", type="primary", use_container_width=True)
-
-    if scrape_btn:
-        if asins_input.strip():
-            asins = [a.strip() for a in asins_input.replace("\n", ",").split(",") if a.strip()]
-            try:
-                res = requests.post(f"{WORKER_URL}/trigger/scrape", json={"asins": asins}, timeout=5)
-                if res.status_code == 202:
-                    st.success(f"✅ Scraper Dispatched for {len(asins)} ASINs! Check Terminal for progress.")
-                else:
-                    st.error(f"Failed: {res.text}")
-            except Exception as e:
-                st.error(f"Connection Error: {e}")
-        else:
-            st.warning("⚠️ Please enter at least one ASIN before launching the scraper.")
-
-# --- TAB 2: STAGING AREA (Safe Ingest - API BASED) ---
-with tab_staging:
-    st.header("Staging Data Manager")
-    st.markdown("Verify and Ingest files into the Main Database.")
-
-    if st.button("🔄 Refresh List"):
-        st.rerun()
-
-    files = list_staging_files()
-    if not files:
-        st.info("No files in staging area.")
-    else:
-        for f in files:
-            with st.expander(f"📄 {f.name} ({f.stat().st_size / 1024:.1f} KB)", expanded=True):
-                c1, c2, c3 = st.columns([2, 1, 1])
-                with c1:
-                    st.caption(f"Path: `{f}`")
-                    st.caption(f"Modified: {time.ctime(f.stat().st_mtime)}")
-                with c2:
-                    if st.button("📥 Ingest to DB", key=f"ingest_{f.name}"):
-                        try:
-                            payload = {"file_path": str(f.resolve())}
-                            res = requests.post(f"{WORKER_URL}/trigger/ingest", json=payload, timeout=5)
-                            if res.status_code == 202:
-                                st.toast("✅ Ingest Request Sent!", icon="📥")
-                                st.info("Worker is processing ingestion. Check Terminal for results.")
-                            else:
-                                st.error(f"Failed to trigger ingest: {res.text}")
-                        except Exception as e:
-                            st.error(f"Connection Error: {e}")
-                with c3:
-                    if st.button("🗑️ Delete", key=f"del_{f.name}", type="secondary"):
-                        os.remove(f)
-                        st.rerun()
-
-# --- TAB 3: AI OPS ---
-with tab_ai:
-    st.header("AI Operations")
-
-    with st.expander("💡 PRO TIP: Save 50% Cost with BATCH Mode", expanded=False):
-        st.markdown(
-            """
-        **Live Mode** is expensive for large datasets (> 1000 reviews). 
-        Use **Batch Mode** via the **Terminal Tab** to reduce costs significantly:
         
-        1. Select `python manage.py batch-submit-miner` in the Dropdown Palette.
-        2. Wait for completion (check via `batch-status`).
-        3. Collect results via `batch-collect`.
-        """,
-            unsafe_allow_html=True,
-        )
-
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown("#### ⛏️ Miner (Extract Aspects)")
-        limit = st.number_input("Review Limit", 10, 1000, 50)
-        if st.button("Start Miner"):
-            try:
-                requests.post(f"{WORKER_URL}/trigger/miner", params={"limit": limit}, timeout=2)
-                st.toast("Miner Started!")
-            except:
-                st.error("Worker Offline")
-
-    with c2:
-        st.markdown("#### 🧹 Janitor (Normalize Tags)")
-        st.markdown("Clean raw tags into standards.")
-        if st.button("Start Janitor"):
-            try:
-                requests.post(f"{WORKER_URL}/trigger/janitor", timeout=2)
-                st.toast("Janitor Started!")
-            except:
-                st.error("Worker Offline")
+        if st.button("🚀 Approve Selected", type="primary"):
+            selected = edited_df[edited_df["Select"] == True]
+            for _, row in selected.iterrows():
+                execute_sql("UPDATE scrape_queue SET status = 'READY_TO_SCRAPE' WHERE request_id = ?", [row["request_id"]])
+            st.success(f"Approved {len(selected)} requests.")
+            st.rerun()
+            
+        if st.button("❌ Reject Selected", type="secondary"):
+            selected = edited_df[edited_df["Select"] == True]
+            for _, row in selected.iterrows():
+                execute_sql("UPDATE scrape_queue SET status = 'REJECTED' WHERE request_id = ?", [row["request_id"]])
+            st.warning(f"Rejected {len(selected)} requests.")
+            st.rerun()
 
     st.divider()
-    st.markdown("#### 📊 Stats Engine (Dashboard Cache)")
-    s_col1, s_col2 = st.columns(2)
-    with s_col1:
-        if st.button("🔥 Global Stats Recalc", help="Recalculate ALL products (Heavy CPU!)"):
-            try:
-                res = requests.post(f"{WORKER_URL}/trigger/recalc", timeout=5)
-                if res.status_code == 202:
-                    st.success("🚀 Global Recalc Dispatched!")
-                else:
-                    st.error("Failed")
-            except:
-                st.error("Worker Offline")
-    with s_col2:
-        target_asin = st.text_input("Target ASIN (Optional)", placeholder="B0...")
-        if st.button("📊 Targeted Recalc"):
-            if not target_asin:
-                st.warning("Please enter an ASIN")
+    st.header("2. Scrape Engine")
+    
+    c1, c2 = st.columns(2)
+    with c1:
+        st.subheader("🔍 Parent Finder")
+        st.caption("Playwright worker to find parentAsin from DP pages.")
+        
+        # NEW: Manual Category Input
+        st.warning("⚠️ **Policy:** Use a SINGLE Category per batch (e.g., 'comforter').")
+        target_cat = st.text_input("Target Category (Manual Override)", placeholder="comforter, tumbler, etc.", key="target_cat")
+        
+        # Auto-Load Helper
+        if st.button("📋 Load Approved ASINs"):
+            approved_df = query_df("SELECT asin FROM scrape_queue WHERE status = 'READY_TO_SCRAPE' LIMIT 50")
+            if not approved_df.empty:
+                st.session_state["pf_input"] = "\n".join(approved_df["asin"].tolist())
+                st.success(f"Loaded {len(approved_df)} ASINs from queue.")
+                st.rerun()
             else:
-                try:
-                    res = requests.post(f"{WORKER_URL}/trigger/recalc", params={"asin": target_asin}, timeout=5)
-                    if res.status_code == 202:
-                        st.toast(f"Recalc started for {target_asin}")
-                    else:
-                        st.error("Failed")
-                except:
-                    st.error("Worker Offline")
+                st.info("No ASINs marked as 'READY_TO_SCRAPE'.")
 
-# --- TAB 4: TERMINAL (Safe Command Palette) ---
+        pf_asins = st.text_area("ASINs for Parent Finding", height=100, key="pf_input", value=st.session_state.get("pf_input", ""))
+        if st.button("Launch Parent Finder", type="primary" if target_cat else "secondary"):
+            if not target_cat:
+                st.error("⛔ Please enter a **Target Category** before launching.")
+            elif pf_asins.strip():
+                asins = [a.strip() for a in pf_asins.replace("\n", ",").split(",") if a.strip()]
+                requests.post(f"{WORKER_URL}/trigger/find_parents", json={"asins": asins, "category": target_cat})
+                # Sync status in queue
+                for asin in asins:
+                    execute_sql("UPDATE scrape_queue SET status = 'IN_PROGRESS' WHERE asin = ? AND status = 'READY_TO_SCRAPE'", [asin])
+                st.success(f"Parent Finder dispatched for {len(asins)} items in category '{target_cat}'!")
+            
+    with c2:
+        st.subheader("🎭 Apify Detail Scraper")
+        st.caption("Axesso API to fetch full product details.")
+        
+        if st.button("📋 Load Missing Details"):
+            missing_df = query_df("SELECT parent_asin FROM product_parents WHERE brand IS NULL LIMIT 20")
+            if not missing_df.empty:
+                st.session_state["ap_input"] = "\n".join(missing_df["parent_asin"].tolist())
+                st.success(f"Loaded {len(missing_df)} parents with missing metadata.")
+                st.rerun()
+            else:
+                st.info("All parents in DB have metadata.")
+
+        ap_asins = st.text_area("ASINs for Details", height=100, key="ap_input", value=st.session_state.get("ap_input", ""))
+        if st.button("Launch Apify Worker"):
+            if ap_asins.strip():
+                asins = [a.strip() for a in ap_asins.replace("\n", ",").split(",") if a.strip()]
+                requests.post(f"{WORKER_URL}/trigger/product_details", json={"asins": asins})
+                st.success(f"Apify Worker dispatched for {len(asins)} items!")
+
+    st.divider()
+    st.subheader("🕵️ Direct Review Scraper")
+    
+    if st.button("📋 Load Unscraped Parents"):
+        unscraped_df = query_df("""
+            SELECT parent_asin FROM product_parents 
+            WHERE parent_asin NOT IN (SELECT DISTINCT parent_asin FROM reviews)
+            LIMIT 10
+        """)
+        if not unscraped_df.empty:
+            st.session_state["rev_input"] = "\n".join(unscraped_df["parent_asin"].tolist())
+            st.success(f"Loaded {len(unscraped_df)} parents needing reviews.")
+            st.rerun()
+        else:
+            st.info("No parents found without reviews.")
+
+    asins_input = st.text_area("Enter ASINs for Reviews (Legacy JSON flow)", height=100, key="rev_input", value=st.session_state.get("rev_input", ""))
+    if st.button("Launch Review Scraper"):
+        if asins_input.strip():
+            asins = [a.strip() for a in asins_input.replace("\n", ",").split(",") if a.strip()]
+            requests.post(f"{WORKER_URL}/trigger/scrape", json={"asins": asins})
+            st.success("Scraper started!")
+
+# --- TAB 2: STAGING AREA ---
+with tab_staging:
+    st.header("Data Staging Area")
+    st.info("Files here are ready for validation before Ingest.")
+    files = list_staging_files()
+    if not files:
+        st.info("Staging is empty.")
+    else:
+        for f in files:
+            with st.expander(f"📄 {f.name}"):
+                st.write(f"Path: {f}")
+                if st.button(f"Delete {f.name}"):
+                    os.remove(f)
+                    st.rerun()
+
+# --- TAB 3: INGEST LAB ---
+with tab_ingest:
+    st.header("Database Ingestion Lab")
+    files = list_staging_files()
+    if files:
+        selected_file = st.selectbox("Select file to ingest:", [f.resolve() for f in files], format_func=lambda x: os.path.basename(x))
+        if st.button("📥 RUN INGESTION", type="primary"):
+            try:
+                res = requests.post(f"{WORKER_URL}/trigger/ingest", json={"file_path": str(selected_file)})
+                if res.status_code == 202:
+                    st.success("Ingestion dispatched!")
+                else:
+                    st.error(res.text)
+            except:
+                st.error("Worker offline")
+    else:
+        st.warning("No files in staging to ingest.")
+
+# --- TAB 4: AI OPERATIONS ---
+with tab_ai:
+    st.header("AI Operations (Miner & Janitor)")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.subheader("⛏️ Aspect Miner")
+        limit = st.number_input("Review Limit", 10, 5000, 50)
+        if st.button("Start Miner"):
+            requests.post(f"{WORKER_URL}/trigger/miner", params={"limit": limit})
+            st.success("Miner started")
+    with c2:
+        st.subheader("🧹 Tag Janitor")
+        if st.button("Start Janitor"):
+            requests.post(f"{WORKER_URL}/trigger/janitor")
+            st.success("Janitor started")
+
+# --- TAB 5: STATS ENGINE ---
+with tab_stats:
+    st.header("Stats Engine & Dashboard Cache")
+    target_asin = st.text_input("Target ASIN (Optional)", placeholder="B0...")
+    if st.button("🔄 Recalculate Stats"):
+        params = {"asin": target_asin} if target_asin else {}
+        requests.post(f"{WORKER_URL}/trigger/recalc", params=params)
+        st.success("Stats recalc started")
+
+# --- TAB 6: ORCHESTRATOR ---
+with tab_orch:
+    st.header("Workflow Orchestrator")
+    st.markdown("""
+    ### 🔄 Active Pipeline Dependencies
+    The flowchart below shows the data journey:
+    1. **Scrape** -> Creates JSON in Staging.
+    2. **Ingest** -> Moves Staging to DB & Updates `product_parents`.
+    3. **AI Miner** -> Extracts aspects from raw reviews.
+    4. **AI Janitor** -> Standardizes aspects.
+    5. **Stats Engine** -> Pre-calculates metrics for UI.
+    """)
+    st.info("This section will eventually show real-time Gantt charts or dependency graphs.")
+
+# --- TAB 7: TERMINAL & LOGS ---
 with tab_logs:
+    st.header("Logs & Terminal")
     st.header("🛠️ Quick Commands")
     st.caption("Execute on-demand commands directly within the worker container.")
 

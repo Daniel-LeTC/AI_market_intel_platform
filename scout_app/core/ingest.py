@@ -95,6 +95,14 @@ class DataIngester:
                         status VARCHAR,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
+                    CREATE TABLE IF NOT EXISTS product_parents (
+                        parent_asin VARCHAR PRIMARY KEY,
+                        category VARCHAR,
+                        title VARCHAR,
+                        brand VARCHAR,
+                        image_url VARCHAR,
+                        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
                 """)
         except Exception as e:
             print(f"Schema Init Error: {e}")
@@ -330,6 +338,25 @@ class DataIngester:
                 pack = COALESCE(CAST(excluded.pack AS VARCHAR), products.pack),
                 last_updated = now()
         """)
+
+        # 4. REFERENCE ONLY: Update product_parents
+        parent_df = p_df.select([
+            "parent_asin", "main_niche", "title", "brand", "image_url"
+        ]).rename({"main_niche": "category"}).unique(subset=["parent_asin"]).filter(pl.col("parent_asin").is_not_null())
+
+        if not parent_df.is_empty():
+            conn.register("temp_parents", parent_df.to_arrow())
+            conn.execute("""
+                INSERT INTO product_parents (parent_asin, category, title, brand, image_url, last_updated)
+                SELECT parent_asin, category, title, brand, image_url, now()
+                FROM temp_parents
+                ON CONFLICT (parent_asin) DO UPDATE SET
+                    category = COALESCE(excluded.category, product_parents.category),
+                    title = COALESCE(excluded.title, product_parents.title),
+                    brand = COALESCE(excluded.brand, product_parents.brand),
+                    image_url = COALESCE(excluded.image_url, product_parents.image_url),
+                    last_updated = now()
+            """)
 
 
     def ingest_file(self, file_path: Path) -> Dict[str, Any]:

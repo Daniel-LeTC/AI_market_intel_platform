@@ -89,6 +89,31 @@ def main():
                                 st.rerun()
                         st.warning(msg)
 
+        # --- Sidebar Status Table ---
+        st.caption("🔍 Request Status")
+        df_status = query_df("""
+            SELECT asin, status, created_at 
+            FROM scrape_queue 
+            WHERE requested_by = ? 
+            ORDER BY created_at DESC 
+            LIMIT 5
+        """, [current_user_id])
+        
+        if not df_status.empty:
+            # Color coding or simple display
+            st.dataframe(
+                df_status,
+                column_config={
+                    "asin": st.column_config.TextColumn("ASIN"),
+                    "status": st.column_config.TextColumn("Status"),
+                    "created_at": st.column_config.DatetimeColumn("Date", format="DD/MM HH:mm"),
+                },
+                hide_index=True,
+                use_container_width=True
+            )
+        else:
+            st.info("No active requests.")
+
         st.markdown("---")
         # Load ASIN List (Optimized with Cache Key)
         cache_key = st.session_state.get("last_db_update", 0)
