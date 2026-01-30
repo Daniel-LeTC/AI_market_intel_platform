@@ -113,7 +113,11 @@ def run_apify_product_details(asins: list, category: str = "comforter"):
                     INSERT INTO product_parents (parent_asin, category, niche, title, brand, image_url, last_updated)
                     VALUES (?, ?, ?, ?, ?, ?, now())
                     ON CONFLICT (parent_asin) DO UPDATE SET
-                        category = COALESCE(excluded.category, product_parents.category),
+                        category = CASE 
+                            WHEN product_parents.category IS NULL OR product_parents.category IN ('Unknown', 'comforter') 
+                            THEN excluded.category 
+                            ELSE product_parents.category 
+                        END,
                         niche = COALESCE(excluded.niche, product_parents.niche),
                         title = COALESCE(excluded.title, product_parents.title),
                         brand = COALESCE(excluded.brand, product_parents.brand),

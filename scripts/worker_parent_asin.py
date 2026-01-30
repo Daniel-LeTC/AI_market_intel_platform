@@ -63,7 +63,11 @@ async def main(asins: list, category: str = None):
                         INSERT INTO product_parents (parent_asin, category, last_updated)
                         VALUES (?, ?, now())
                         ON CONFLICT (parent_asin) DO UPDATE SET 
-                            category = excluded.category,
+                            category = CASE 
+                                WHEN product_parents.category IS NULL OR product_parents.category IN ('Unknown', 'comforter') 
+                                THEN excluded.category 
+                                ELSE product_parents.category 
+                            END,
                             last_updated = now()
                     """, [parent, category])
                 else:

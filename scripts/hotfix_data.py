@@ -26,9 +26,9 @@ def hotfix():
             """)
             print(f"   ✅ Fixed {res.rowcount} tumbler categories")
 
-            # 2. Specific fix for B0DCFRR5X1
-            conn.execute("UPDATE product_parents SET category = 'tumbler' WHERE parent_asin = 'B0DCFRR5X1'")
-
+            # 2. Specific fix for B09JZL65NW and B0DCFRR5X1
+            conn.execute("UPDATE product_parents SET category = 'tumbler' WHERE parent_asin IN ('B09JZL65NW', 'B0DCFRR5X1')")
+            
             # 3. Brand cleanup
             conn.execute("UPDATE product_parents SET brand = REPLACE(brand, 'Brand: ', '') WHERE brand LIKE 'Brand: %'")
             conn.execute("UPDATE product_parents SET brand = REPLACE(brand, 'Visit the ', '') WHERE brand LIKE 'Visit the %'")
