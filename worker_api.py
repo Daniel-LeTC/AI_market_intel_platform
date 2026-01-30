@@ -54,6 +54,7 @@ class ParentFinderRequest(BaseModel):
 
 class ProductDetailsRequest(BaseModel):
     asins: List[str]
+    category: Optional[str] = "comforter"
 
 class IngestRequest(BaseModel):
     file_path: str
@@ -85,13 +86,15 @@ def run_parent_finder_task(asins: List[str], category: str = None):
         except Exception as e:
             f.write(f"--- {datetime.now()} | ParentFinder Failed: {e} ---\n")
 
-def run_apify_details_task(asins: List[str]):
+def run_apify_details_task(asins: List[str], category: str = "comforter"):
     log_path = Path("scout_app/logs/worker.log")
     with open(log_path, "a") as f:
-        f.write(f"\n--- {datetime.now()} | ApifyDetails Start: {asins} ---\n")
+        f.write(f"\n--- {datetime.now()} | ApifyDetails Start: {asins} (Category: {category}) ---\n")
         f.flush()
         try:
             cmd = ["python", "scripts/worker_product_details.py"] + asins
+            if category:
+                cmd.extend(["--category", category])
             subprocess.run(cmd, check=True, stdout=f, stderr=f)
             f.write(f"--- {datetime.now()} | ApifyDetails Completed ---\n")
         except Exception as e:
@@ -193,8 +196,8 @@ def trigger_product_details(req: ProductDetailsRequest, background_tasks: Backgr
     asins = [a.strip() for a in req.asins if a.strip()]
     if not asins:
         raise HTTPException(status_code=400, detail="No ASINs provided")
-    background_tasks.add_task(run_apify_details_task, asins)
-    return {"status": "accepted", "job": "product_details", "target": asins}
+    background_tasks.add_task(run_apify_details_task, asins, req.category)
+    return {"status": "accepted", "job": "product_details", "target": asins, "category": req.category}
 
 @app.post("/trigger/ingest", status_code=202)
 def trigger_ingest(req: IngestRequest, background_tasks: BackgroundTasks):
@@ -238,6 +241,8 @@ def run_recalc_task(asin: str = None):
                     )
                 """
                 
+                asins_to_calc = [r[0] for r in conn.execute(query).fetchall()]
+
                 if not asins_to_calc:
                     logger.info("✨ [Recalc] Everything is already up to date.")
                     return

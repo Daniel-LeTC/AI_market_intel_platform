@@ -238,8 +238,9 @@ with tab_scrape:
         if st.button("Launch Apify Worker"):
             if ap_asins.strip():
                 asins = [a.strip() for a in ap_asins.replace("\n", ",").split(",") if a.strip()]
-                requests.post(f"{WORKER_URL}/trigger/product_details", json={"asins": asins})
-                st.success(f"Apify Worker dispatched for {len(asins)} items!")
+                cat = st.session_state.get("target_cat", "comforter")
+                requests.post(f"{WORKER_URL}/trigger/product_details", json={"asins": asins, "category": cat})
+                st.success(f"Apify Worker dispatched for {len(asins)} items in category '{cat}'!")
 
     st.divider()
     st.subheader("🕵️ Direct Review Scraper")
