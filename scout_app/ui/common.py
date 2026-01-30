@@ -265,17 +265,18 @@ def request_new_asin(asin_input, note="", force_update=False, user_id=None):
             if has_data and not force_update:
                 return (
                     False,
-                    f"🛑 Đã có dữ liệu! Tìm thấy {rev_stats[0]} reviews (Mới nhất: {last_date}). Nếu cần cập nhật, hãy tick 'Force Update'.",
+                    f"💡 Đã có dữ liệu! Parent ASIN `{final_asin}` hiện có {rev_stats[0]} reviews, mới nhất:{last_date} . "
+                    "Nếu bạn thực sự muốn cập nhật, vui lòng tick vào ô **'Force Update'** phía trên rồi gửi lại nhé!",
                 )
 
             if has_data and force_update:
-                system_note += f" | [Force Update] Last Data: {last_date}"
+                system_note += f" | [Force Update Requested] Previous Data: {rev_stats[0]} reviews, Last: {last_date}"
 
             # 3. Check Duplicate Queue
-            check_sql = "SELECT status FROM scrape_queue WHERE asin = ? AND status IN ('PENDING_APPROVAL', 'READY_TO_SCRAPE', 'PROCESSING')"
+            check_sql = "SELECT status FROM scrape_queue WHERE asin = ? AND status IN ('PENDING_APPROVAL', 'READY_TO_SCRAPE', 'IN_PROGRESS')"
             existing = conn.execute(check_sql, [final_asin]).fetchone()
             if existing:
-                return False, f"⚠️ Yêu cầu cho {final_asin} đang chờ xử lý (Trạng thái: {existing[0]})."
+                return False, f"🕒 Đang xử lý! Yêu cầu cho `{final_asin}` đã nằm trong hàng đợi (Trạng thái: **{existing[0]}**). Anh vui lòng đợi một chút nhé!"
 
     except Exception as e:
         return False, f"Lỗi hệ thống: {e}"

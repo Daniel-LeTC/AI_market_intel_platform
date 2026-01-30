@@ -7,6 +7,7 @@ from pathlib import Path
 from google import genai
 from google.genai import types
 from .config import Settings
+from .stats_engine import StatsEngine
 
 class AIMiner:
     # Production Backend Model (Jan 2026)
@@ -216,6 +217,17 @@ class AIMiner:
             """, data_to_insert)
             conn.close()
             
+            # --- NEW: Trigger Recalculation ---
+            try:
+                unique_parents = list(set([asin for _, asin, _, _, _, _ in data_to_insert if asin]))
+                if unique_parents:
+                    print(f"📊 [Miner] Triggering recalc for {len(unique_parents)} parents...")
+                    engine = StatsEngine()
+                    for pasin in unique_parents:
+                        engine.calculate_and_save(pasin)
+            except Exception as e:
+                print(f"⚠️ [Miner] Recalc trigger warning: {e}")
+            
         # --- STATUS UPGRADE (ALWAYS COMPLETED AFTER PROCESSING) ---
         self._update_mining_status(original_ids, "COMPLETED")
 
@@ -266,4 +278,13 @@ class AIMiner:
                     conn.executemany("INSERT INTO review_tags (review_id, parent_asin, category, aspect, sentiment, quote) VALUES (?, ?, ?, ?, ?, ?)", data_to_insert)
                     self._update_mining_status(list(processed_ids), "COMPLETED")
                     conn.close()
+                    
+                    # --- NEW: Trigger Recalculation (Batch) ---
+                    try:
+                        unique_parents = list(set([asin for _, asin, _, _, _, _ in data_to_insert if asin]))
+                        if unique_parents:
+                            engine = StatsEngine()
+                            for pasin in unique_parents:
+                                engine.calculate_and_save(pasin)
+                    except: pass
             except: continue

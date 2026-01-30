@@ -221,6 +221,7 @@ def run_recalc_task(asin: str = None):
                     logger.info(f"   ✅ [Recalc] Completed for {a}")
             else:
                 # SMART GLOBAL RECALC: Only target ASINs with fresh reviews
+                query = """
                     SELECT DISTINCT r.parent_asin 
                     FROM reviews r
                     LEFT JOIN product_stats ps ON r.parent_asin = ps.asin
@@ -235,6 +236,7 @@ def run_recalc_task(asin: str = None):
                         OR r.ingested_at >= ps.last_updated
                         OR rt.max_created >= ps.last_updated
                     )
+                """
                 
                 if not asins_to_calc:
                     logger.info("✨ [Recalc] Everything is already up to date.")

@@ -8,6 +8,7 @@ from google import genai
 from google.genai import types
 from .config import Settings
 from .ai_batch import AIBatchHandler
+from .stats_engine import StatsEngine
 
 class TagNormalizer:
     # Precision Model for Normalization (Cheap & Smart)
@@ -161,6 +162,28 @@ class TagNormalizer:
                 VALUES (?, ?, ?)
             """, data_to_insert)
             conn.close()
+            
+            # --- NEW: Trigger Smart Recalc (Global) ---
+            try:
+                print("📊 [Janitor] New mappings saved. Triggering Smart Recalc...")
+                import requests
+                # We can call the worker's own endpoint or run logic directly. 
+                # Since we are in the core, let's just use StatsEngine directly for affected ASINs?
+                # Actually, a global smart recalc is better because mappings affect MANY products.
+                # We can use the logic from worker_api:run_recalc_task
+                engine = StatsEngine()
+                with duckdb.connect(str(Settings.get_active_db_path())) as c_recalc:
+                    # Find ASINs that use these raw aspects
+                    raw_list = [f"'{r[0]}'" for r in data_to_insert]
+                    query = f"SELECT DISTINCT parent_asin FROM review_tags WHERE lower(trim(aspect)) IN ({', '.join(raw_list)})"
+                    asins_to_calc = [row[0] for row in c_recalc.execute(query).fetchall()]
+                    
+                    if asins_to_calc:
+                        print(f"   👉 Updating stats for {len(asins_to_calc)} impacted products...")
+                        for pasin in asins_to_calc:
+                            engine.calculate_and_save(pasin, conn=c_recalc)
+            except Exception as e:
+                print(f"⚠️ [Janitor] Recalc trigger warning: {e}")
 
     def ingest_batch_results(self, jsonl_content: str):
         """Universal parser for Janitor batch results."""

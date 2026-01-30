@@ -19,43 +19,62 @@ class StatsEngine:
         """Extract basic KPIs from products table (with fallback to reviews)."""
         sql = """
             SELECT 
-                real_total_ratings as total_reviews,
-                real_average_rating as avg_rating,
-                variation_count as total_variations,
+                parent_asin,
+                real_total_ratings,
+                real_average_rating,
+                variation_count,
                 rating_breakdown
             FROM products
             WHERE asin = ?
         """
         df = self._query_df(conn, sql, [asin])
+        
+        # Fallback to local counts if metadata is missing
+        local_stats = conn.execute("""
+            SELECT COUNT(*), AVG(rating_score) 
+            FROM reviews WHERE parent_asin = ?
+        """, [asin]).fetchone()
+        
+        local_total = local_stats[0] if local_stats else 0
+        local_avg = local_stats[1] if local_stats else 0.0
+
         if df.empty:
-            return {}
+            return {
+                "total_reviews": local_total,
+                "avg_rating": float(local_avg),
+                "total_variations": 0,
+                "neg_pct": 0.0,
+                "is_fallback": True
+            }
         
         row = df.iloc[0]
         
+        # Use Real Ratings if available, else local
+        total_reviews = int(row['real_total_ratings']) if pd.notnull(row['real_total_ratings']) else local_total
+        avg_rating = float(row['real_average_rating']) if pd.notnull(row['real_average_rating']) else float(local_avg)
+
         # Variations Fallback
-        variations = int(row['total_variations']) if pd.notnull(row['total_variations']) else 0
+        variations = int(row['variation_count']) if pd.notnull(row['variation_count']) else 0
         if variations == 0:
-            # Try counting from reviews
             try:
                 v_count = conn.execute("SELECT COUNT(DISTINCT child_asin) FROM reviews WHERE parent_asin = ?", [asin]).fetchone()[0]
                 variations = v_count
-            except:
-                pass
+            except: pass
 
         # Calculate neg_pct from breakdown if possible
         neg_pct = 0
         try:
             rb = row['rating_breakdown']
             if isinstance(rb, str): rb = json.loads(rb)
-            total = sum(rb.values())
-            if total > 0:
-                neg_pct = (rb.get('1', 0) + rb.get('2', 0)) / total * 100
-        except:
-            pass
+            total_rb = sum(rb.values())
+            if total_rb > 0:
+                # Assuming rb values are counts or percentages
+                neg_pct = (float(rb.get('1', 0)) + float(rb.get('2', 0))) / total_rb * 100
+        except: pass
 
         return {
-            "total_reviews": int(row['total_reviews']) if pd.notnull(row['total_reviews']) else 0,
-            "avg_rating": float(row['avg_rating']) if pd.notnull(row['avg_rating']) else 0.0,
+            "total_reviews": total_reviews,
+            "avg_rating": avg_rating,
             "total_variations": variations,
             "neg_pct": float(neg_pct)
         }
@@ -85,25 +104,40 @@ class StatsEngine:
         """
         # 1. Get Real Population Stats
         p_row = self._query_df(conn, "SELECT real_total_ratings, rating_breakdown FROM products WHERE asin = ?", [asin])
-        if p_row.empty: return []
         
-        real_total = p_row.iloc[0]['real_total_ratings']
-        if pd.isnull(real_total) or real_total == 0: return []
+        # Fallback counts if real metadata is missing
+        local_total = conn.execute("SELECT COUNT(*) FROM reviews WHERE parent_asin = ?", [asin]).fetchone()[0]
         
-        breakdown_json = p_row.iloc[0]['rating_breakdown']
+        real_total = p_row.iloc[0]['real_total_ratings'] if not p_row.empty else local_total
+        if pd.isnull(real_total) or real_total == 0:
+            real_total = local_total # Hard fallback
+            
+        if real_total == 0: return []
+        
+        breakdown_json = p_row.iloc[0]['rating_breakdown'] if not p_row.empty else None
         real_counts = {5:0, 4:0, 3:0, 2:0, 1:0}
         
         try:
             if breakdown_json:
                 bd = json.loads(breakdown_json) if isinstance(breakdown_json, str) else breakdown_json
-                # bd is usually percentages like {"5": 70, "4": 10...} or counts.
-                # Assuming percentages summing to ~100 or 1.0. Let's normalize.
                 total_bd = sum(bd.values())
                 if total_bd > 0:
                     for k, v in bd.items():
-                        real_counts[int(k)] = (v / total_bd) * real_total
+                        real_counts[int(k)] = (float(v) / total_bd) * real_total
+            else:
+                # If no breakdown, use local star distribution as proxy
+                local_bd = conn.execute("""
+                    SELECT CAST(ROUND(rating_score) AS INTEGER) as star, COUNT(*) 
+                    FROM reviews WHERE parent_asin = ? GROUP BY 1
+                """, [asin]).fetchall()
+                total_local = sum(r[1] for r in local_bd)
+                if total_local > 0:
+                    for star, count in local_bd:
+                        if star in real_counts:
+                            real_counts[star] = (count / total_local) * real_total
         except:
-            return []
+            # Last resort: flat distribution (not ideal but avoids crash)
+            for s in real_counts: real_counts[s] = real_total / 5.0
 
         # 2. Get Sample Stats (Mention Rates per Star)
         # We need: For each aspect, for each star, how many mentions vs total sample size at that star?

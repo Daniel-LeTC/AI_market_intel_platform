@@ -1,7 +1,18 @@
 import asyncio
 import re
+import duckdb
+import sys
+import os
+import argparse
+import random
+import time
 from playwright.async_api import async_playwright
 from pathlib import Path
+
+# Add root to sys.path to find core
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from scout_app.core.config import Settings
+from scout_app.core.logger import log_event
 
 async def find_parent_asin(asin: str):
     """
@@ -11,8 +22,8 @@ async def find_parent_asin(asin: str):
     print(f"🕵️ Searching for parent of {asin} at {url}...")
     
     async with async_playwright() as p:
-        # Launch browser (non-headless as per requirement)
-        browser = await p.chromium.launch(headless=False)
+        # Launch browser (headless for stability)
+        browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
         )
@@ -38,15 +49,67 @@ async def find_parent_asin(asin: str):
         finally:
             await browser.close()
 
-async def main(asins: list):
-    results = {}
-    for asin in asins:
-        parent = await find_parent_asin(asin)
-        results[asin] = parent
-        await asyncio.sleep(2) # Delay to avoid detection
-    return results
+async def main(asins: list, category: str = None):
+    db_path = str(Settings.get_active_db_path())
+    conn = duckdb.connect(db_path)
+    
+    try:
+        for asin in asins:
+            parent = await find_parent_asin(asin)
+            if parent:
+                # Update DB
+                if category:
+                    conn.execute("""
+                        INSERT INTO product_parents (parent_asin, category, last_updated)
+                        VALUES (?, ?, now())
+                        ON CONFLICT (parent_asin) DO UPDATE SET 
+                            category = excluded.category,
+                            last_updated = now()
+                    """, [parent, category])
+                else:
+                    conn.execute("""
+                        INSERT INTO product_parents (parent_asin, last_updated)
+                        VALUES (?, now())
+                        ON CONFLICT (parent_asin) DO UPDATE SET last_updated = now()
+                    """, [parent])
+                
+                # Update Queue Status to COMPLETED
+                conn.execute("""
+                    UPDATE scrape_queue 
+                    SET status = 'COMPLETED', 
+                        note = COALESCE(note, '') || ' [Found Parent: ' || ? || ']'
+                    WHERE asin = ? AND status = 'IN_PROGRESS'
+                """, [parent, asin])
+
+                # Also log for user visibility
+                log_event("ParentFinder", {"asin": asin, "parent": parent, "category": category, "status": "mapped"})
+            else:
+                log_event("ParentFinder", {"asin": asin, "status": "not_found"})
+                
+                # Update Queue Status to FAILED
+                conn.execute("""
+                    UPDATE scrape_queue 
+                    SET status = 'FAILED', 
+                        note = COALESCE(note, '') || ' [Parent Not Found]'
+                    WHERE asin = ? AND status = 'IN_PROGRESS'
+                """, [asin])
+                
+            # Anti-Bot: Random sleep with jitter
+            base_sleep = random.uniform(2, 5) if len(asins) > 1 else 0
+            if base_sleep > 0:
+                print(f"😴 Sleeping for {base_sleep:.2f}s...")
+                await asyncio.sleep(base_sleep)
+    finally:
+        conn.close()
 
 if __name__ == "__main__":
-    import sys
-    asins = sys.argv[1:] if len(sys.argv) > 1 else ["B00P8XQPY4"]
-    asyncio.run(main(asins))
+    parser = argparse.ArgumentParser(description="Find parent ASINs and optionally set category.")
+    parser.add_argument("asins", nargs="+", help="One or more ASINs to process")
+    parser.add_argument("--category", help="Category to assign to the found parent ASINs")
+    
+    args = parser.parse_args()
+    
+    if args.asins:
+        asyncio.run(main(args.asins, args.category))
+    else:
+        parser.print_help()

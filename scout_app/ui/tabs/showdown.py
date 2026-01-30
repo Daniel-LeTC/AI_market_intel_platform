@@ -13,13 +13,19 @@ def render_showdown_tab(selected_asin):
     st.subheader("⚔️ Head-to-Head Comparison")
 
     # 1. Get My DNA
-    my_dna = query_df("SELECT * FROM products WHERE asin = ?", [selected_asin])
+    my_dna = query_df("""
+        SELECT p.*, pp.category, pp.niche 
+        FROM products p 
+        LEFT JOIN product_parents pp ON p.asin = pp.parent_asin
+        WHERE p.asin = ?
+    """, [selected_asin])
     if my_dna.empty:
         st.warning("Product data not found.")
         return
 
     my_row = my_dna.iloc[0]
-    my_niche = my_row.get("main_niche") or "NONE"
+    my_cat = my_row.get("category") or my_row.get("main_niche") or "NONE"
+    my_niche = my_row.get("niche") or "NONE"
     my_ratings = float(my_row.get("real_total_ratings", 0) or 0)
     my_line = my_row.get("product_line") or "NONE"
 
@@ -32,17 +38,20 @@ def render_showdown_tab(selected_asin):
     def fetch_candidates(rating_min, rating_max):
         sql = """
             SELECT 
-                asin, title, image_url, real_total_ratings, real_average_rating, main_niche, product_line
-            FROM products 
-            WHERE asin != ? 
-              AND real_total_ratings BETWEEN ? AND ?
+                p.asin, p.title, p.image_url, p.real_total_ratings, p.real_average_rating, 
+                COALESCE(pp.category, p.main_niche) as category, pp.niche, p.product_line
+            FROM products p
+            LEFT JOIN product_parents pp ON p.asin = pp.parent_asin
+            WHERE p.asin != ? 
+              AND p.real_total_ratings BETWEEN ? AND ?
             ORDER BY 
-                (CASE WHEN main_niche = ? THEN 2 ELSE 0 END) + 
-                (CASE WHEN product_line = ? THEN 1 ELSE 0 END) DESC,
-                ABS(real_total_ratings - ?) ASC
+                (CASE WHEN pp.niche = ? THEN 3 ELSE 0 END) +
+                (CASE WHEN COALESCE(pp.category, p.main_niche) = ? THEN 2 ELSE 0 END) + 
+                (CASE WHEN p.product_line = ? THEN 1 ELSE 0 END) DESC,
+                ABS(p.real_total_ratings - ?) ASC
             LIMIT 50
         """
-        return query_df(sql, [selected_asin, rating_min, rating_max, my_niche, my_line, my_ratings])
+        return query_df(sql, [selected_asin, rating_min, rating_max, my_niche, my_cat, my_line, my_ratings])
 
     # Try Strict Match (+/- 30%)
     candidates = fetch_candidates(my_ratings * 0.7, my_ratings * 1.3)
@@ -59,8 +68,8 @@ def render_showdown_tab(selected_asin):
     # Smart = Same Niche OR Same Line (High Relevance)
     # Others = Just same weight class
     
-    # Check if Niche/Line matches
-    candidates['is_smart'] = (candidates['main_niche'] == my_niche) | (candidates['product_line'] == my_line)
+    # Check if Niche/Category/Line matches
+    candidates['is_smart'] = (candidates['niche'] == my_niche) | (candidates['category'] == my_cat) | (candidates['product_line'] == my_line)
     
     smart_df = candidates[candidates['is_smart']].copy()
     others_df = candidates[~candidates['is_smart']].copy()

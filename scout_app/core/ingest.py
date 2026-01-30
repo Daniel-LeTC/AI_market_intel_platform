@@ -278,23 +278,41 @@ class DataIngester:
         schema_cols = list(type_map.keys())
         p_df = p_df.select(schema_cols)
 
-        # 2. PREPARE CHILD METADATA (From variations)
+        # 2. PREPARE CHILD METADATA (From variations in review files)
+        # In raw review scraper: 'asin' is the target parent, 'variationid' is the actual child.
         var_id_col = next((c for c in df.columns if c.lower() == "variationid"), None)
         if var_id_col and "asin" in df.columns:
+            # Join with product_parents to ensure we only link to VALID parents (from Source of Truth)
+            # Or at least prioritize linking to existing parents.
             c_df = df.select([
                 pl.col(var_id_col).alias("asin"),
                 pl.col("asin").alias("parent_asin"),
                 pl.col("producttitle").alias("title") if "producttitle" in df.columns else pl.lit(None).cast(pl.Utf8),
                 pl.col("brand").alias("brand") if "brand" in df.columns else pl.lit(None).cast(pl.Utf8),
+                pl.col("imageurllist/0").alias("image_url") if "imageurllist/0" in df.columns else pl.lit(None).cast(pl.Utf8),
+                pl.col("variationlist/0").alias("variation_0") if "variationlist/0" in df.columns else pl.lit(None).cast(pl.Utf8),
             ]).unique(subset=["asin"]).filter(pl.col("asin").is_not_null())
             
+            # Format specs as JSON if available
+            if "variation_0" in c_df.columns:
+                c_df = c_df.with_columns(
+                    pl.when(pl.col("variation_0").is_not_null())
+                    .then(pl.format('{"variation_0": "{}"}', pl.col("variation_0")))
+                    .otherwise(pl.lit(None))
+                    .alias("specs_json")
+                )
+
+            # Standardize for merge
             for col, dtype in type_map.items():
+                if col == "specs_json" and "specs_json" in c_df.columns:
+                    continue
                 if col not in c_df.columns:
                     c_df = c_df.with_columns(pl.lit(None).cast(dtype).alias(col))
                 else:
                     c_df = c_df.with_columns(pl.col(col).cast(dtype))
             
-            p_df = pl.concat([p_df, c_df.select(schema_cols)]).unique(subset=["asin"])
+            # Concat and dedup (prioritize parent-level metadata if asin overlap)
+            p_df = pl.concat([p_df, c_df.select(p_df.columns)]).unique(subset=["asin"], keep="first")
 
         if p_df.is_empty(): return
 
@@ -342,16 +360,21 @@ class DataIngester:
         # 4. REFERENCE ONLY: Update product_parents
         parent_df = p_df.select([
             "parent_asin", "main_niche", "title", "brand", "image_url"
-        ]).rename({"main_niche": "category"}).unique(subset=["parent_asin"]).filter(pl.col("parent_asin").is_not_null())
+        ]).filter(pl.col("parent_asin").is_not_null())
 
         if not parent_df.is_empty():
             conn.register("temp_parents", parent_df.to_arrow())
             conn.execute("""
-                INSERT INTO product_parents (parent_asin, category, title, brand, image_url, last_updated)
-                SELECT parent_asin, category, title, brand, image_url, now()
+                INSERT INTO product_parents (parent_asin, category, niche, title, brand, image_url, last_updated)
+                SELECT 
+                    parent_asin, 
+                    'comforter' as category, -- Default to broad category as per user instruction
+                    main_niche as niche, 
+                    title, brand, image_url, now()
                 FROM temp_parents
                 ON CONFLICT (parent_asin) DO UPDATE SET
                     category = COALESCE(excluded.category, product_parents.category),
+                    niche = COALESCE(excluded.niche, product_parents.niche),
                     title = COALESCE(excluded.title, product_parents.title),
                     brand = COALESCE(excluded.brand, product_parents.brand),
                     image_url = COALESCE(excluded.image_url, product_parents.image_url),
@@ -403,19 +426,8 @@ class DataIngester:
                         WHERE review_id NOT IN (SELECT review_id FROM reviews)
                     """)
 
-            # 3.5. Trigger Pre-calculation (NEW)
-            try:
-                unique_asins = df["asin"].unique().to_list() if "asin" in df.columns else []
-                if not unique_asins and "parent_asin" in df.columns:
-                    unique_asins = df["parent_asin"].unique().to_list()
-                
-                if unique_asins:
-                    print(f"📊 [Ingester] Recalculating stats for {len(unique_asins)} ASINs on {target_db.name}...")
-                    engine = StatsEngine(db_path=str(target_db))
-                    for asin in unique_asins:
-                        if asin: engine.calculate_and_save(asin)
-            except Exception as stats_err:
-                print(f"⚠️ [Ingester] Stats Calculation Warning: {stats_err}")
+            # 3.5. Trigger Pre-calculation (MOVED TO MINER/JANITOR)
+            # Recalculation during ingest is premature as reviews are not yet mined/mapped.
             
             # 4. Swap
             Settings.swap_db()

@@ -229,32 +229,60 @@ def render_mass_mode(selected_asin):
     st.subheader("🔥 Market Sentiment Heatmap (Mass Mode)")
 
     # --- 1. SELECTION LOGIC ---
-    base_info = query_df("SELECT brand, title, product_line, real_total_ratings FROM products WHERE asin = ?", [selected_asin])
+    base_info = query_df("""
+        SELECT p.brand, p.title, p.product_line, p.real_total_ratings, pp.category, pp.niche 
+        FROM products p 
+        LEFT JOIN product_parents pp ON p.asin = pp.parent_asin
+        WHERE p.asin = ?
+    """, [selected_asin])
+    
     my_line = base_info.iloc[0]['product_line'] if not base_info.empty else None
     my_ratings = base_info.iloc[0]['real_total_ratings'] or 0
+    my_cat = base_info.iloc[0]['category'] if not base_info.empty else None
+    my_niche = base_info.iloc[0]['niche'] if not base_info.empty else None
 
     # Get all potential candidates with ROBUST BRAND fetching
     all_parents = query_df("""
-        SELECT parent_asin as asin, MAX(brand) as brand, ANY_VALUE(title) as title 
-        FROM products 
+        SELECT 
+            p.parent_asin as asin, 
+            MAX(COALESCE(pp.brand, p.brand)) as brand, 
+            ANY_VALUE(COALESCE(pp.title, p.title)) as title,
+            ANY_VALUE(pp.category) as category,
+            ANY_VALUE(pp.niche) as niche
+        FROM products p 
+        LEFT JOIN product_parents pp ON p.parent_asin = pp.parent_asin
         GROUP BY 1 
-        ORDER BY MAX(real_total_ratings) DESC
+        ORDER BY MAX(p.real_total_ratings) DESC
     """)
     parent_list = all_parents['asin'].tolist()
     parent_map = all_parents.set_index('asin')['brand'].to_dict()
 
-    line_filter = f"AND product_line = '{my_line}'" if my_line and my_line != 'None' else ""
-    auto_candidates = query_df(f"""
-        SELECT asin FROM products 
-        WHERE asin != ? AND asin = parent_asin {line_filter}
-        ORDER BY ABS(real_total_ratings - {my_ratings}) ASC LIMIT 15
-    """, [selected_asin])['asin'].tolist()
+    st.markdown("##### 🛠️ Bộ lọc thị trường")
+    f_c1, f_c2 = st.columns(2)
+    with f_c1:
+        unique_cats = sorted([c for c in all_parents['category'].dropna().unique() if c])
+        selected_cat = st.selectbox("Lọc theo Category:", ["Tất cả"] + unique_cats, index=unique_cats.index(my_cat) + 1 if my_cat in unique_cats else 0)
+    
+    with f_c2:
+        # Filter niches based on category
+        niche_df = all_parents if selected_cat == "Tất cả" else all_parents[all_parents['category'] == selected_cat]
+        unique_niches = sorted([n for n in niche_df['niche'].dropna().unique() if n])
+        selected_niche = st.selectbox("Lọc theo Niche:", ["Tất cả"] + unique_niches, index=unique_niches.index(my_niche) + 1 if my_niche in unique_niches else 0)
 
-    st.markdown("##### 🛠️ Tùy chỉnh danh sách so sánh")
+    # Filter candidates based on selection
+    filtered_parents = all_parents.copy()
+    if selected_cat != "Tất cả":
+        filtered_parents = filtered_parents[filtered_parents['category'] == selected_cat]
+    if selected_niche != "Tất cả":
+        filtered_parents = filtered_parents[filtered_parents['niche'] == selected_niche]
+
+    auto_candidates = filtered_parents[filtered_parents['asin'] != selected_asin]['asin'].tolist()[:15]
+
+    st.markdown("##### 🤝 Tùy chỉnh danh sách so sánh")
     selected_list = st.multiselect(
         "Chọn các ASIN đối thủ để đưa vào bản đồ nhiệt:",
         options=parent_list,
-        default=[selected_asin] + auto_candidates,
+        default=[selected_asin] + [c for c in auto_candidates if c in parent_list],
         format_func=lambda x: f"{x} - {str(parent_map.get(x, 'Unknown Brand'))[:15]}...",
         key=f"mass_sel_list_v3_{selected_asin}"
     )
@@ -265,9 +293,10 @@ def render_mass_mode(selected_asin):
 
     # --- 2. FETCH DATA IN BATCH ---
     sql = """
-        SELECT p.asin, COALESCE(p.brand, 'Unknown') as brand, p.title, ps.metrics_json, p.real_total_ratings 
+        SELECT p.asin, COALESCE(pp.brand, p.brand, 'Unknown') as brand, COALESCE(pp.title, p.title) as title, ps.metrics_json, p.real_total_ratings 
         FROM products p 
         JOIN product_stats ps ON p.asin = ps.asin 
+        LEFT JOIN product_parents pp ON p.asin = pp.parent_asin
         WHERE p.asin IN ({})
     """.format(','.join(['?']*len(selected_list)))
     df_batch = query_df(sql, selected_list)

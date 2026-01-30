@@ -54,15 +54,25 @@ def render_overview_tab(selected_asin, product_brand, dna_data):
                     valid_rows = dna_data[dna_data[col_name].notnull()]
                     return valid_rows[col_name].iloc[0] if not valid_rows.empty else "N/A"
 
+                # Fetch standardized metadata from product_parents
+                parent_meta = query_df("SELECT category, niche FROM product_parents WHERE parent_asin = ?", [selected_asin])
+                
                 brand = get_first_valid('brand') if product_brand == "N/A" else product_brand
                 material = get_first_valid('material')
-                niche = get_first_valid('main_niche')
+                
+                if not parent_meta.empty:
+                    category = parent_meta.iloc[0]['category'] or "N/A"
+                    niche = parent_meta.iloc[0]['niche'] or get_first_valid('main_niche')
+                else:
+                    category = "N/A"
+                    niche = get_first_valid('main_niche')
+
                 target = f"{get_first_valid('gender') or ''} {get_first_valid('target_audience') or ''}".strip() or "N/A"
 
                 st.markdown(f"**Brand:** `{brand}`")
                 st.markdown(f"**Material:** `{material}`")
+                st.markdown(f"**Category:** `{category}`")
                 st.markdown(f"**Niche:** `{niche}`")
-                st.markdown(f"**Target:** `{target}`")
                 
                 # --- Variations Detail ---
                 st.markdown("**Variations Detected:**")

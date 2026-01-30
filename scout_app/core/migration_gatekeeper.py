@@ -20,6 +20,7 @@ def migrate_gatekeeper():
         CREATE TABLE IF NOT EXISTS product_parents (
             parent_asin VARCHAR PRIMARY KEY,
             category VARCHAR,
+            niche VARCHAR,
             title VARCHAR,
             brand VARCHAR,
             image_url VARCHAR,

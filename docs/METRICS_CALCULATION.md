@@ -77,8 +77,10 @@ The following mapping is applied during the ingestion of raw Apify/Scraper expor
     *   *Proposed Improvement:* Calculate a "Weighted Aspect Score" by combining the aspect sentiment from each star tier (from reviews) with the weight of that tier (from `rating_breakdown`).
     *   *Formula:* $Score = \sum_{i=1}^{5} (Sentiment_i \times Weight_i)$
 
-2.  **Variation Metadata:**
-    *   The `real_average_rating` usually applies to the Parent ASIN (aggregate of all variations). We do not currently store distinct metadata for individual Child ASINs unless scraped separately as parents.
+2.  **Variation Metadata & Automated Enrichment:**
+    *   Previously, metadata for Child ASINs was fragmented or missing.
+    *   **Automated Enrichment Flow:** The `DataIngester` now automatically detects `variationId` in raw review scrapers and populates the `products` table with child-level metadata (image, title, specs) while maintaining a strict link to the validated `parent_asin`.
+    *   This ensures that even if we only scrape reviews for a Parent ASIN, our `products` table becomes "enriched" with its active child variations.
 
 3.  **Trend Accuracy:**
     *   The "Rating Trend over Time" graph is derived from sampled individual reviews. It does not reflect the "Average Rating" displayed on the product page at that specific past date.
