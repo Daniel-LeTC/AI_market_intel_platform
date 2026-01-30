@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Hướng Dẫn Sử Dụng PIP</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 2.5cm;
+            @bottom-center {
+                content: "Trang " counter(page);
+                font-size: 10pt;
+                color: #7f8c8d;
+            }
+        }
+        body {
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 11pt;
+            line-height: 1.6;
+            color: #333;
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+            text-transform: uppercase;
+            font-size: 24pt;
+            text-align: center;
+            margin-top: 0;
+        }
+        h2 {
+            color: #2980b9;
+            border-left: 5px solid #2980b9;
+            padding-left: 10px;
+            margin-top: 40px;
+            page-break-after: avoid;
+        }
+        h3 {
+            color: #16a085;
+            margin-top: 25px;
+            page-break-after: avoid;
+        }
+        p {
+            text-align: justify;
+            margin-bottom: 15px;
+        }
+        ul {
+            margin-bottom: 15px;
+        }
+        li {
+            margin-bottom: 5px;
+        }
+        .container {
+            width: 100%;
+        }
+        .image-block {
+            text-align: center;
+            margin: 20px auto;
+            page-break-inside: avoid;
+        }
+        img {
+            max-width: 100%;
+            height: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
+        }
+        .caption {
+            font-style: italic;
+            color: #7f8c8d;
+            margin-top: 8px;
+            font-size: 0.9em;
+        }
+        .row {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .info-box {
+            background-color: #f8f9fa;
+            border-left: 4px solid #f39c12;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        code {
+            background-color: #ecf0f1;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-family: monospace;
+            color: #c0392b;
+        }
+        a {
+            color: #2980b9;
+            text-decoration: none;
+        }
+        /* Cover Page */
+        .cover {
+            text-align: center;
+            margin-top: 30%;
+            page-break-after: always;
+        }
+        .cover h1 {
+            border: none;
+            font-size: 36pt;
+            color: #2c3e50;
+        }
+        .cover p {
+            text-align: center;
+            font-size: 14pt;
+            color: #7f8c8d;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- COVER PAGE -->
+    <div class="cover">
+        <h1>HƯỚNG DẪN SỬ DỤNG</h1>
+        <p><strong>PRODUCT INTELLIGENCE PLATFORM (PIP)</strong></p>
+        <p>Phiên bản: 1.0 (Release Candidate)</p>
+        <p>Ngày cập nhật: 28/01/2026</p>
+        <br><br>
+        <p>Dành cho: R&D Team, Product Developers</p>
+    </div>
+
+    <!-- CONTENT -->
+    <h2>1. GIỚI THIỆU CHUNG</h2>
+    <p>
+        <strong>Product Intelligence Platform (PIP)</strong> là công cụ hỗ trợ chuyên sâu cho <strong>R&D và Phát triển Sản phẩm</strong>. 
+        Hệ thống giúp kỹ sư và chuyên gia sản phẩm "đọc vị" hàng ngàn phản hồi của khách hàng từ Amazon để tìm ra công thức cải tiến sản phẩm tối ưu.
+    </p>
+    <div class="info-box">
+        <strong>Thông tin truy cập:</strong><br>
+        URL: <a href="http://34.87.30.120:8501/">http://34.87.30.120:8501/</a><br>
+        User: <code>user_1000</code><br>
+        Pass: <code>123456</code>
+    </div>
+
+    <h2>2. QUY TRÌNH ĐĂNG NHẬP & TIẾP CẬN</h2>
+
+    <h3>2.1. Đăng nhập</h3>
+    <p>Truy cập URL ứng dụng và nhập thông tin tài khoản được cấp.</p>
+    
+    <div class="image-block">
+        <img src="../analysis_workspace/PIP-screenshot/login_screen.png" style="width: 80%;">
+        <div class="caption">Hình 1: Màn hình đăng nhập hệ thống</div>
+    </div>
+    <div class="image-block">
+        <img src="../analysis_workspace/PIP-screenshot/login_panel.png" style="width: 50%;">
+        <div class="caption">Hình 2: Panel nhập liệu</div>
+    </div>
+
+    <p>Sau khi đăng nhập thành công, hệ thống sẽ hiển thị thông báo chào mừng:</p>
+    <div class="image-block">
+        <img src="../analysis_workspace/PIP-screenshot/logged_in_successfully.png" style="width: 50%;">
+        <div class="caption">Hình 3: Thông báo đăng nhập thành công</div>
+    </div>
+
+    <h3>2.2. Thanh Sidebar & Chọn ASIN</h3>
+    <p>Thanh điều hướng bên trái (Sidebar) là trung tâm điều khiển của ứng dụng. Bạn có thể ẩn/hiện thanh này để mở rộng không gian làm việc.</p>
+
+    <div class="image-block">
+        <div style="display: flex; justify-content: center; gap: 20px;">
+            <img src="../analysis_workspace/PIP-screenshot/sidebar_details_and_hide_button.png" style="width: 45%;">
+            <img src="../analysis_workspace/PIP-screenshot/sidebar_inside.png" style="width: 45%;">
+        </div>
+        <div class="caption">Hình 4: Thanh Sidebar (Trái: Trạng thái đóng/mở - Phải: Chi tiết bên trong)</div>
+    </div>
+
+    <h2>3. QUẢN LÝ YÊU CẦU PHÂN TÍCH (REQUEST FLOW)</h2>
+
+    <h3>3.1. Yêu cầu ASIN Mới</h3>
+    <p>
+        Nếu sản phẩm bạn cần nghiên cứu chưa có trong Database, hãy nhập mã ASIN vào ô <strong>Request New ASIN</strong>. 
+        Hệ thống khuyến khích sử dụng <strong>Parent ASIN</strong> để có cái nhìn tổng quát về cả dòng sản phẩm.
+    </p>
+
+    <div class="image-block">
+        <img src="../analysis_workspace/PIP-screenshot/request_totally_new_parent_asin.png" style="width: 80%;">
+        <div class="caption">Hình 5: Nhập Parent ASIN mới hoàn toàn</div>
+    </div>
+
+    <h3>3.2. Các trường hợp cảnh báo</h3>
+    <p>Hệ thống thông minh sẽ tự động phát hiện và cảnh báo các trường hợp nhập liệu chưa tối ưu:</p>
+
+    <div class="image-block">
+        <img src="../analysis_workspace/PIP-screenshot/request_child_asin_instead_of_parent_asin.png" style="width: 80%;">
+        <div class="caption">Hình 6: Cảnh báo khi nhập Child ASIN (Nên dùng Parent ASIN)</div>
+    </div>
+
+    <div class="image-block">
+        <img src="../analysis_workspace/PIP-screenshot/request_new_parent_asin_not_have_review_yet.png" style="width: 80%;">
+        <div class="caption">Hình 7: Cảnh báo sản phẩm quá mới, chưa có review</div>
+    </div>
+
+    <div class="image-block">
+        <img src="../analysis_workspace/PIP-screenshot/request_existed_asin.png" style="width: 80%;">
+        <div class="caption">Hình 8: Thông báo ASIN đã có sẵn trong hệ thống</div>
+    </div>
+
+    <h2>4. DASHBOARD TỔNG QUAN (EXECUTIVE SUMMARY)</h2>
+    <p>
+        Đây là màn hình dành cho cấp quản lý (Lead R&D) để nắm bắt nhanh tình hình sản phẩm. 
+        Dashboard cung cấp các chỉ số KPI thực tế và Top 3 vấn đề cần ưu tiên xử lý.
+    </p>
+
+    <div class="image-block">
+        <img src="../analysis_workspace/PIP-screenshot/executive_summary_dashboard.png" style="width: 100%;">
+        <div class="caption">Hình 9: Giao diện Executive Summary Dashboard</div>
+    </div>
+
+    <h2>5. THẤU HIỂU KHÁCH HÀNG (CUSTOMER X-RAY)</h2>
+    <p>Công cụ cốt lõi để tìm kiếm ý tưởng cải tiến sản phẩm (Product Improvement).</p>
+
+    <h3>5.1. Chế độ Mặc định & Heatmap</h3>
+    <p>Màn hình mặc định hiển thị danh sách các khía cạnh sản phẩm. Bạn có thể chuyển sang chế độ <strong>Mass Mode</strong> để xem dưới dạng Heatmap.</p>
+
+    <div class="image-block">
+        <img src="../analysis_workspace/PIP-screenshot/customer_xray_default.png" style="width: 90%;">
+        <div class="caption">Hình 10: Giao diện X-Ray mặc định</div>
+    </div>
+
+    <div class="image-block">
+        <img src="../analysis_workspace/PIP-screenshot/customer_xray_mass_mode_head.png" style="width: 90%;">
+        <div class="caption">Hình 11: Header chuyển đổi sang Mass Mode</div>
+    </div>
+
+    <h3>5.2. Phân tích Heatmap (Mass Mode)</h3>
+    <p>
+        Heatmap giúp quét nhanh điểm yếu của cả dòng sản phẩm. Các ô màu vàng/nhạt thể hiện vùng mà khách hàng chưa hài lòng, cần cải thiện kỹ thuật.
+    </p>
+
+    <div class="image-block">
+        <img src="../analysis_workspace/PIP-screenshot/customer_xray_mass_mode_heatmap.png" style="width: 100%;">
+        <div class="caption">Hình 12: Chi tiết Heatmap phân tích đa chiều</div>
+    </div>
+
+    <h3>5.3. Chỉ số Impact Score</h3>
+    <p>
+        <strong>Impact Score</strong> là công cụ định lượng mức độ nghiêm trọng. Nó giúp R&D trả lời câu hỏi: "Lỗi này ảnh hưởng đến bao nhiêu nghìn khách hàng thực tế?".
+    </p>
+
+    <div class="image-block">
+        <img src="../analysis_workspace/PIP-screenshot/customer_xray_impact_score.png" style="width: 90%;">
+        <div class="caption">Hình 13: Biểu đồ Impact Score</div>
+    </div>
+    <div class="image-block">
+        <img src="../analysis_workspace/PIP-screenshot/customer_xray_impact_score_explained.png" style="width: 70%;">
+        <div class="caption">Hình 14: Giải thích logic tính toán Impact Score</div>
+    </div>
+
+    <h3>5.4. Truy xuất dẫn chứng (Quote Extraction)</h3>
+    <p>Xem chi tiết khách hàng nói gì về một lỗi cụ thể để đội kỹ thuật có hướng xử lý chính xác.</p>
+
+    <div class="image-block">
+        <img src="../analysis_workspace/PIP-screenshot/customer_xray_quote_extraction_table.png" style="width: 100%;">
+        <div class="caption">Hình 15: Bảng trích dẫn review chi tiết</div>
+    </div>
+    <div class="image-block">
+        <img src="../analysis_workspace/PIP-screenshot/customer_xray_jump_list.png" style="width: 50%;">
+        <div class="caption">Hình 16: Danh sách nhảy nhanh đến từng khía cạnh</div>
+    </div>
+
+    <h2>6. SO SÁNH ĐỐI THỦ (MARKET SHOWDOWN)</h2>
+    <p>Dùng để Benchmarking thông số kỹ thuật với đối thủ cạnh tranh trực tiếp.</p>
+
+    <h3>6.1. Chọn đối thủ</h3>
+    <ul>
+        <li><strong>Smart Match:</strong> Tự động tìm đối thủ cùng phân khúc và rating.</li>
+        <li><strong>Manual Match:</strong> Tự chọn đối thủ cụ thể từ danh sách.</li>
+    </ul>
+
+    <div class="image-block">
+        <div style="display: flex; justify-content: center; gap: 10px;">
+            <img src="../analysis_workspace/PIP-screenshot/showdown_head_smart_match.png" style="width: 48%;">
+            <img src="../analysis_workspace/PIP-screenshot/showdown_head_manual_match.png" style="width: 48%;">
+        </div>
+        <div class="caption">Hình 17: Chế độ Smart Match (Trái) và Manual Match (Phải)</div>
+    </div>
+
+    <h3>6.2. So sánh chi tiết</h3>
+    <p>Giao diện so sánh trực diện (Side-by-side) các chỉ số kỹ thuật và độ hài lòng.</p>
+
+    <div class="image-block">
+        <img src="../analysis_workspace/PIP-screenshot/showdown_body.png" style="width: 100%;">
+        <div class="caption">Hình 18: Giao diện so sánh tổng thể</div>
+    </div>
+
+    <h3>6.3. Phân tích Điểm mạnh/Yếu (SWOT Kỹ thuật)</h3>
+    <p>Hệ thống tự động phân loại các tính năng thành:</p>
+    <ul>
+        <li><strong>Unique Aspects:</strong> Tính năng độc nhất của bạn.</li>
+        <li><strong>Weakness:</strong> Điểm yếu cần khắc phục.</li>
+        <li><strong>Shared Features:</strong> Các tính năng tương đồng để so sánh trực tiếp.</li>
+    </ul>
+
+    <div class="image-block">
+        <div style="display: flex; justify-content: center; gap: 10px;">
+            <img src="../analysis_workspace/PIP-screenshot/showdown_unique_aspects.png" style="width: 32%;">
+            <img src="../analysis_workspace/PIP-screenshot/showdown_weakness.png" style="width: 32%;">
+            <img src="../analysis_workspace/PIP-screenshot/showdown_shared_feat_explained.png" style="width: 32%;">
+        </div>
+        <div class="caption">Hình 19: Phân tích sâu các khía cạnh kỹ thuật (Unique - Weakness - Shared)</div>
+    </div>
+
+    <h2>7. TRỢ LÝ R&D (STRATEGY HUB)</h2>
+    <p>Công cụ AI (Gemini 3.0) hỗ trợ Brainstorming ý tưởng sản phẩm mới và phân tích sâu dữ liệu.</p>
+
+    <h3>7.1. Quick Actions</h3>
+    <p>Các phím tắt giúp tạo nhanh báo cáo R&D hoặc tóm tắt Insight mà không cần gõ lệnh phức tạp.</p>
+
+    <div class="image-block">
+        <img src="../analysis_workspace/PIP-screenshot/strat_hub_quick_actions_and_AI_chat.png" style="width: 70%;">
+        <div class="caption">Hình 20: Phím tắt tác vụ nhanh cho R&D</div>
+    </div>
+
+    <h3>7.2. Hỏi đáp chuyên sâu (Deep Dive)</h3>
+    <p>Bạn có thể chat trực tiếp với AI để hỏi về các vấn đề kỹ thuật cụ thể (Ví dụ: "Độ dày vải", "Đường may có chắc không?").</p>
+
+    <div class="image-block">
+        <img src="../analysis_workspace/PIP-screenshot/strat_hub_AI_chat_example.png" style="width: 80%;">
+        <div class="caption">Hình 21: Giao diện Chat AI</div>
+    </div>
+
+    <h3>7.3. Dẫn chứng kỹ thuật (Evidence Based)</h3>
+    <p>AI luôn cung cấp bằng chứng từ review gốc để R&D validate thông tin, tránh hiện tượng ảo giác (Hallucination).</p>
+
+    <div class="image-block">
+        <img src="../analysis_workspace/PIP-screenshot/strat_hub_AI_chat_example_Thickness-aspect_evidence.png" style="width: 90%;">
+        <div class="caption">Hình 22: AI phân tích độ dày vải kèm dẫn chứng review thực tế</div>
+    </div>
+
+    <h2>8. QUẢN TRỊ HỆ THỐNG (ADMIN ONLY)</h2>
+    <p>Khu vực dành riêng cho Admin để duyệt yêu cầu cào dữ liệu và giám sát Pipeline hệ thống.</p>
+
+    <div class="image-block">
+        <img src="../analysis_workspace/PIP-screenshot/admin_console_for_approving_request.png" style="width: 90%;">
+        <div class="caption">Hình 23: Console duyệt yêu cầu</div>
+    </div>
+    <div class="image-block">
+        <img src="../analysis_workspace/PIP-screenshot/admin_pipeline_dashboard.png" style="width: 90%;">
+        <div class="caption">Hình 24: Dashboard giám sát hệ thống</div>
+    </div>
+
+</body>
+</html>
