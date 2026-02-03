@@ -280,7 +280,7 @@ class StatsEngine:
         }
 
     def save_to_db(self, asin, metrics_dict, conn=None):
-        """Upsert metrics into product_stats table and sync KPIs back to products."""
+        """Upsert metrics into product_stats table."""
         json_str = json.dumps(metrics_dict)
         now = datetime.now()
 
@@ -293,26 +293,11 @@ class StatsEngine:
                 last_updated = EXCLUDED.last_updated
         """
 
-        # 2. Sync to products table (Commercial Data)
-        kpis = metrics_dict.get("kpis", {})
-        avg_rating = kpis.get("avg_rating")
-        total_reviews = kpis.get("total_reviews")
-
-        sql_products = """
-            UPDATE products 
-            SET real_average_rating = ?, real_total_ratings = ?
-            WHERE asin = ? OR parent_asin = ?
-        """
-
         if conn:
             conn.execute(sql_stats, [asin, now, json_str])
-            if avg_rating is not None:
-                conn.execute(sql_products, [avg_rating, total_reviews, asin, asin])
         else:
             with duckdb.connect(self.db_path) as conn:
                 conn.execute(sql_stats, [asin, now, json_str])
-                if avg_rating is not None:
-                    conn.execute(sql_products, [avg_rating, total_reviews, asin, asin])
 
     def calculate_and_save(self, asin, conn=None):
         """Single ASIN calculation and save."""
