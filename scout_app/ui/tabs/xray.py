@@ -247,11 +247,15 @@ def render_mass_mode(selected_asin):
         my_line = "N/A"
         my_ratings = 0
     else:
-        my_line = base_info.iloc[0]["product_line"]
-        my_ratings = base_info.iloc[0]["real_total_ratings"] or 0
+        # Robust extraction to avoid Pandas NA boolean ambiguity
+        row = base_info.iloc[0]
+        my_line = row["product_line"] if pd.notnull(row["product_line"]) else "N/A"
+        my_ratings = row["real_total_ratings"] if pd.notnull(row["real_total_ratings"]) else 0
 
-    my_cat = base_info.iloc[0]["category"] if not base_info.empty else None
-    my_niche = base_info.iloc[0]["niche"] if not base_info.empty else None
+    my_cat = (
+        base_info.iloc[0]["category"] if not base_info.empty and pd.notnull(base_info.iloc[0]["category"]) else None
+    )
+    my_niche = base_info.iloc[0]["niche"] if not base_info.empty and pd.notnull(base_info.iloc[0]["niche"]) else None
 
     # Get all potential candidates with ROBUST BRAND fetching
     all_parents = query_df("""
@@ -309,16 +313,6 @@ def render_mass_mode(selected_asin):
             filtered_parents["niche"].str.contains(selected_niche, na=False, regex=False)
         ]
 
-    # Search filter for Mass Mode
-    search_mass = st.text_input("🔍 Tìm nhanh đối thủ (Brand/ASIN):", placeholder="Gõ để lọc danh sách bên dưới...")
-    if search_mass:
-        search_mass = search_mass.lower()
-        filtered_parents = filtered_parents[
-            filtered_parents["asin"].str.lower().str.contains(search_mass, na=False)
-            | filtered_parents["brand"].str.lower().str.contains(search_mass, na=False)
-            | filtered_parents["title"].str.lower().str.contains(search_mass, na=False)
-        ]
-
     # Update dynamic lists for Multiselect
     dynamic_parent_list = filtered_parents["asin"].tolist()
     dynamic_parent_map = filtered_parents.set_index("asin")["brand"].to_dict()
@@ -370,13 +364,19 @@ def render_mass_mode(selected_asin):
             real_total = row["real_total_ratings"] or 0
 
             for item in m.get("sentiment_weighted", []):
-                score = item["est_positive"]  # Use Volume instead of %
+                # Aggressive Penalized Net Score: Negative feedback has 3x visual weight
+                pos = item.get("est_positive", 0)
+                neg = item.get("est_negative", 0)
+                score = pos - (neg * 3.0)
+
                 heatmap_data.append(
                     {
                         "Sản phẩm": label,
                         "ASIN": row["asin"],
                         "Khía cạnh": item["aspect"],
-                        "Khách khen (Est)": score,
+                        "Visual Score": score,
+                        "Khen (Est)": pos,
+                        "Chê (Est)": neg,
                         "Tổng Rating": real_total,
                     }
                 )
@@ -388,33 +388,74 @@ def render_mass_mode(selected_asin):
         return
 
     df_hm = pd.DataFrame(heatmap_data)
-    df_pivot = df_hm.pivot(index="Khía cạnh", columns="Sản phẩm", values="Khách khen (Est)")
+    df_pivot = df_hm.pivot(index="Khía cạnh", columns="Sản phẩm", values="Visual Score")
 
     # FIX: Fill NaN with 0 for missing aspects (Clean Heatmap)
     df_pivot = df_pivot.fillna(0)
 
-    # Sort aspects by total volume of positive feedback across all products
-    df_pivot = df_pivot.reindex(df_pivot.sum(axis=1).sort_values(ascending=False).index)
+    # Sort aspects by absolute total volume of impact (Importance)
+    df_pivot = df_pivot.reindex(df_pivot.abs().sum(axis=1).sort_values(ascending=False).index)
 
-    # Create a mapping for total ratings to use in hover
+    # FIX: Remove rows (aspects) where ALL selected products have 0 impact
+    # This keeps the heatmap compact and relevant.
+    df_pivot = df_pivot[df_pivot.abs().sum(axis=1) > 0]
+
+    # NEW: Limit to Top 10 Positive and Top 10 Negative Market Drivers
+    market_scores = df_pivot.sum(axis=1)
+    top_pos = market_scores[market_scores > 0].nlargest(10).index.tolist()
+    top_neg = market_scores[market_scores < 0].nsmallest(10).index.tolist()
+
+    # Sort them: Positives on top (descending), Negatives on bottom (ascending/worst first)
+    final_aspects = top_pos + top_neg
+    if final_aspects:
+        df_pivot = df_pivot.loc[final_aspects]
+    else:
+        st.info("No significant positive or negative drivers found for the selected products.")
+        return
+
+    # Create mappings for hover data
     rating_map = df_hm.set_index("Sản phẩm")["Tổng Rating"].to_dict()
-    hover_ratings = [[rating_map.get(col, 0) for col in df_pivot.columns] for _ in range(len(df_pivot))]
+    pos_map = df_hm.groupby(["Khía cạnh", "Sản phẩm"])["Khen (Est)"].first().to_dict()
+    neg_map = df_hm.groupby(["Khía cạnh", "Sản phẩm"])["Chê (Est)"].first().to_dict()
+
+    # Custom "Deep Red/Black" to "Deep Blue" scale
+    # 0.0 is max negative, 0.5 is neutral, 1.0 is max positive
+    custom_rd_bu = [
+        [0.0, "rgb(15, 0, 0)"],  # Deep Red-Black (Disaster)
+        [0.15, "rgb(150, 0, 0)"],  # Strong Red
+        [0.3, "rgb(255, 50, 50)"],  # Bright Red
+        [0.45, "rgb(255, 230, 230)"],  # Pale Red
+        [0.5, "rgb(255, 255, 255)"],  # White (Neutral)
+        [0.55, "rgb(230, 245, 255)"],  # Pale Blue
+        [1.0, "rgb(0, 50, 150)"],  # Deep Blue (Success)
+    ]
+
+    # Calculate symmetric bounds for the color scale
+    abs_max = max(abs(df_pivot.min().min()), abs(df_pivot.max().max())) if not df_pivot.empty else 10
+    if abs_max == 0:
+        abs_max = 10
 
     # --- 4. RENDER HEATMAP ---
     fig = px.imshow(
         df_pivot,
-        labels=dict(y="Khía cạnh", x="Sản phẩm", color="Khách khen (Est)"),
-        color_continuous_scale="YlGnBu",  # Yellow-Green-Blue for density/volume
+        labels=dict(y="Khía cạnh", x="Sản phẩm", color="Visual Score"),
+        color_continuous_scale=custom_rd_bu,
+        color_continuous_midpoint=0,
+        zmin=-abs_max,
+        zmax=abs_max,
         aspect="auto",
-        title="Market Strength Map (Weighted Volume)",
+        title="Market Sentiment Landscape (Aggressive Negative Detection)",
     )
 
-    # Add Grid Lines (using gaps)
+    # Add Grid Lines and enhanced hover
     fig.update_traces(
-        xgap=1,  # 1 pixel gap between columns
-        ygap=1,  # 1 pixel gap between rows
-        customdata=hover_ratings,
-        hovertemplate="<b>%{x}</b><br>Khía cạnh: %{y}<br>Khách khen: %{z:,.0f} người<br>Tổng Rating: %{customdata:,.0f}<extra></extra>",
+        xgap=1,
+        ygap=1,
+        hovertemplate="<b>%{x}</b><br>Khía cạnh: %{y}<br>Visual Score: %{z:,.0f}<br>👍 Khen: %{customdata[0]:,.0f}<br>👎 Chê: %{customdata[1]:,.0f}<extra></extra>",
+        customdata=[
+            [[pos_map.get((asp, prod), 0), neg_map.get((asp, prod), 0)] for prod in df_pivot.columns]
+            for asp in df_pivot.index
+        ],
     )
     fig.update_layout(height=max(500, len(df_pivot) * 25))
     st.plotly_chart(fig, use_container_width=True)

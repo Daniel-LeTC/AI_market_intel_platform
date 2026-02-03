@@ -144,18 +144,28 @@ def main():
 
         # 1. Category Filter
         all_cats = sorted([c for c in df_meta["category"].dropna().unique() if c])
-        sel_cat = st.sidebar.selectbox("Category:", ["All"] + all_cats)
+        sel_cat = st.sidebar.selectbox("Category:", ["All"] + all_cats, key="sidebar_category")
 
         # 2. Niche Filter (Filtered by Category)
         df_filtered = df_meta.copy()
         if sel_cat != "All":
             df_filtered = df_filtered[df_filtered["category"] == sel_cat]
 
-        all_niches = sorted([n for n in df_filtered["niche"].dropna().unique() if n])
-        sel_niche = st.sidebar.selectbox("Niche:", ["All"] + all_niches)
+        # FIX: Unnest aggregated niche strings to get clean individual niches
+        raw_niches = df_filtered["niche"].dropna().unique()
+        split_niches = set()
+        for rn in raw_niches:
+            for part in str(rn).split(","):
+                clean_part = part.strip()
+                if clean_part and clean_part not in ["Non-defined", "unknown", "null"]:
+                    split_niches.add(clean_part)
+
+        all_niches = sorted(list(split_niches))
+        sel_niche = st.sidebar.selectbox("Niche:", ["All"] + all_niches, key="sidebar_niche")
 
         if sel_niche != "All":
-            df_filtered = df_filtered[df_filtered["niche"] == sel_niche]
+            # Use partial matching for aggregated niche strings
+            df_filtered = df_filtered[df_filtered["niche"].str.contains(sel_niche, na=False, regex=False)]
 
         # 3. Search Box
         search_term = st.sidebar.text_input("🔍 Search Brand/Title/ASIN:", placeholder="e.g. B0...")
@@ -230,6 +240,21 @@ def main():
 
         # Fetch DNA (Full Family)
         dna = query_df("SELECT * FROM products WHERE parent_asin = ?", [selected_asin])
+
+        # FALLBACK: If no children in products table, create a placeholder DNA from parent_parents
+        if dna.empty:
+            dna = query_df(
+                """
+                SELECT 
+                    parent_asin as asin, parent_asin, brand, title, image_url, category, niche as main_niche,
+                    NULL as material, NULL as size_capacity, NULL as num_pieces, NULL as target_audience,
+                    NULL as gender, NULL as product_line, NULL as variation_count,
+                    NULL as real_average_rating, NULL as real_total_ratings, NULL as rating_breakdown
+                FROM product_parents 
+                WHERE parent_asin = ?
+            """,
+                [selected_asin],
+            )
 
         # Determine Display Title & Brand from the Parent row specifically
         parent_row = dna[dna["asin"] == selected_asin]

@@ -63,6 +63,8 @@ def render_overview_tab(selected_asin, product_brand, dna_data):
             if not dna_data.empty:
                 # Robust metadata extraction: find first non-null value for each field
                 def get_first_valid(col_name):
+                    if col_name not in dna_data.columns:
+                        return "N/A"
                     valid_rows = dna_data[dna_data[col_name].notnull()]
                     return valid_rows[col_name].iloc[0] if not valid_rows.empty else "N/A"
 
@@ -87,8 +89,8 @@ def render_overview_tab(selected_asin, product_brand, dna_data):
 
                 st.markdown(f"**Brand:** `{brand}`")
                 st.markdown(f"**Material:** `{material}`")
-                st.markdown(f"**Category:** `{category}`")
-                st.markdown(f"**Niche:** `{niche}`")
+                st.markdown(f"**Product Type (Category):** `{category}`")
+                st.markdown(f"**Design Theme (Niche):** `{niche}`")
 
                 # --- Variations Detail ---
                 st.markdown("**Variations Detected:**")

@@ -60,7 +60,7 @@ def get_raw_sentiment_data(asin: str):
         LEFT JOIN aspect_mapping am ON lower(trim(rt.aspect)) = lower(trim(am.raw_aspect))
         WHERE rt.parent_asin = ?
         GROUP BY 1
-        HAVING (positive + negative) > 1 
+        HAVING (positive + negative) >= 1 
         ORDER BY (positive + negative) DESC
         LIMIT 10
     """
