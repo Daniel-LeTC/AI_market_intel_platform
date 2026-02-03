@@ -1,0 +1,397 @@
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Query
+from pydantic import BaseModel
+import uvicorn
+import logging
+import os
+import sys
+import subprocess
+from datetime import datetime
+from typing import List, Dict, Optional
+from pathlib import Path
+
+# Ensure root is in path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# Import core logic
+from scout_app.core.miner import AIMiner
+from scout_app.core.normalizer import TagNormalizer
+from scout_app.core.scraper import AmazonScraper
+from scout_app.core.ingest import DataIngester
+from scout_app.core.config import Settings
+from scout_app.core.stats_engine import StatsEngine
+
+# NEW: Import Routers
+from scout_app.routers import social
+
+# --- Logging Setup ---
+LOG_FILE = "scout_app/logs/worker.log"
+logger = logging.getLogger("Gatekeeper")
+logger.setLevel(logging.INFO)
+
+fh = logging.FileHandler(LOG_FILE)
+fh.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+fh.setFormatter(formatter)
+logger.addHandler(fh)
+
+ch = logging.StreamHandler()
+ch.setLevel(logging.INFO)
+ch.setFormatter(formatter)
+logger.addHandler(ch)
+
+app = FastAPI(title="RnD Scout Gatekeeper", version="1.6 (Social Module)")
+
+# Include Routers
+app.include_router(social.router)
+
+# --- Models ---
+class ScrapeRequest(BaseModel):
+    asins: List[str]
+
+class ParentFinderRequest(BaseModel):
+    asins: List[str]
+    category: Optional[str] = None
+
+class ProductDetailsRequest(BaseModel):
+    asins: List[str]
+    category: Optional[str] = "comforter"
+
+class IngestRequest(BaseModel):
+    file_path: str
+
+class CommandRequest(BaseModel):
+    cmd: str
+
+# --- Logic Wrappers ---
+def run_miner_task(limit: int):
+    logger.info(f"🚀 [Miner] Starting Job (Limit: {limit})...")
+    try:
+        miner = AIMiner()
+        miner.run_live(limit=limit) 
+        logger.info(f"✅ [Miner] Job Complete.")
+    except Exception as e:
+        logger.error(f"❌ [Miner] Failed: {e}")
+
+def run_parent_finder_task(asins: List[str], category: str = None):
+    log_path = Path("scout_app/logs/worker.log")
+    with open(log_path, "a") as f:
+        f.write(f"\n--- {datetime.now()} | ParentFinder Start: {asins} (Category: {category or 'Automatic'}) ---\n")
+        f.flush()
+        try:
+            cmd = ["python", "scripts/worker_parent_asin.py"] + asins
+            if category:
+                cmd.extend(["--category", category])
+            subprocess.run(cmd, check=True, stdout=f, stderr=f)
+            f.write(f"--- {datetime.now()} | ParentFinder Completed ---\n")
+        except Exception as e:
+            f.write(f"--- {datetime.now()} | ParentFinder Failed: {e} ---\n")
+
+def run_apify_details_task(asins: List[str], category: str = "comforter"):
+    log_path = Path("scout_app/logs/worker.log")
+    with open(log_path, "a") as f:
+        f.write(f"\n--- {datetime.now()} | ApifyDetails Start: {asins} (Category: {category}) ---\n")
+        f.flush()
+        try:
+            cmd = ["python", "scripts/worker_product_details.py"] + asins
+            if category:
+                cmd.extend(["--category", category])
+            subprocess.run(cmd, check=True, stdout=f, stderr=f)
+            f.write(f"--- {datetime.now()} | ApifyDetails Completed ---\n")
+        except Exception as e:
+            f.write(f"--- {datetime.now()} | ApifyDetails Failed: {e} ---\n")
+
+def run_janitor_task():
+    logger.info(f"🧹 [Janitor] Starting Job...")
+    try:
+        janitor = TagNormalizer()
+        janitor.run_live() 
+        logger.info(f"✅ [Janitor] Job Complete.")
+    except Exception as e:
+        logger.error(f"❌ [Janitor] Failed: {e}")
+
+def run_scraper_task(asins: List[str]):
+    logger.info(f"🕷️ [Scraper] Starting deep scrape for {len(asins)} ASINs")
+    try:
+        scraper = AmazonScraper()
+        file_path = scraper.run_deep_scrape(asins)
+        if file_path:
+            logger.info(f"✅ [Scraper] Data saved to: {file_path}")
+            logger.info(f"👉 [Action Required] Go to Admin Console -> Staging Files to verify & ingest.")
+        else:
+            logger.warning("⚠️ [Scraper] No data returned from Apify.")
+    except Exception as e:
+        logger.error(f"❌ [Scraper] Failed: {e}")
+
+def run_ingest_task(file_path: str):
+    logger.info(f"📥 [Ingest] Starting ingestion for: {file_path}")
+    try:
+        from pathlib import Path
+        path_obj = Path(file_path).resolve()
+        path_str = str(path_obj)
+        
+        # Controlled Whitelist: staging_data OR upload_batch_ folders
+        allowed = ["staging_data", "upload_batch_"]
+        is_allowed = any(tag in path_str for tag in allowed)
+        
+        if not is_allowed:
+            logger.error(f"❌ [Ingest] Security Block: Path '{path_str}' is not in an allowed directory.")
+            return
+
+        ingester = DataIngester()
+        result = ingester.ingest_file(path_obj)
+        if "error" in result:
+            logger.error(f"❌ [Ingest] Failed: {result['error']}")
+        else:
+            logger.info(f"✅ [Ingest] Success! Total: {result.get('total_rows')}. New Reviews: {result.get('inserted_rows')}")
+            
+            # --- POST-INGEST MAINTENANCE (Prevent 5GB Bloat) ---
+            try:
+                import duckdb
+                from scout_app.core.config import Settings
+                db_p = str(Settings.get_active_db_path())
+                logger.info(f"🧹 [Ingest] Reclaiming space (Vacuum) on {db_p}...")
+                with duckdb.connect(db_p) as conn:
+                    conn.execute("CHECKPOINT; VACUUM;")
+                logger.info("✨ [Ingest] DB Compaction complete.")
+            except Exception as v_err:
+                logger.warning(f"⚠️ Vacuum warning: {v_err}")
+
+    except Exception as e:
+        logger.error(f"❌ [Ingest] Critical Error: {e}")
+
+# --- Endpoints ---
+
+@app.get("/")
+def health_check():
+    return {"status": "online", "role": "Gatekeeper Full"}
+
+@app.post("/trigger/miner", status_code=202)
+def trigger_miner(background_tasks: BackgroundTasks, limit: int = 100):
+    background_tasks.add_task(run_miner_task, limit)
+    return {"status": "accepted", "job": "miner"}
+
+@app.post("/trigger/janitor", status_code=202)
+def trigger_janitor(background_tasks: BackgroundTasks):
+    background_tasks.add_task(run_janitor_task)
+    return {"status": "accepted", "job": "janitor"}
+
+@app.post("/trigger/scrape", status_code=202)
+def trigger_scrape(req: ScrapeRequest, background_tasks: BackgroundTasks):
+    asins = [a.strip() for a in req.asins if a.strip()]
+    if not asins:
+        raise HTTPException(status_code=400, detail="No ASINs provided")
+    background_tasks.add_task(run_scraper_task, asins)
+    return {"status": "accepted", "job": "scrape", "target": asins}
+
+@app.post("/trigger/find_parents", status_code=202)
+def trigger_find_parents(req: ParentFinderRequest, background_tasks: BackgroundTasks):
+    asins = [a.strip() for a in req.asins if a.strip()]
+    if not asins:
+        raise HTTPException(status_code=400, detail="No ASINs provided")
+    background_tasks.add_task(run_parent_finder_task, asins, req.category)
+    return {"status": "accepted", "job": "find_parents", "target": asins, "category": req.category}
+
+@app.post("/trigger/product_details", status_code=202)
+def trigger_product_details(req: ProductDetailsRequest, background_tasks: BackgroundTasks):
+    asins = [a.strip() for a in req.asins if a.strip()]
+    if not asins:
+        raise HTTPException(status_code=400, detail="No ASINs provided")
+    background_tasks.add_task(run_apify_details_task, asins, req.category)
+    return {"status": "accepted", "job": "product_details", "target": asins, "category": req.category}
+
+@app.post("/trigger/ingest", status_code=202)
+def trigger_ingest(req: IngestRequest, background_tasks: BackgroundTasks):
+    background_tasks.add_task(run_ingest_task, req.file_path)
+    return {"status": "accepted", "job": "ingest", "file": req.file_path}
+
+def run_recalc_task(asin: str = None):
+    logger.info(f"📊 [Recalc] Starting task (Target: {asin or 'SMART GLOBAL'})...")
+    try:
+        from scout_app.core.stats_engine import StatsEngine
+        from scout_app.core.config import Settings
+        import duckdb
+        db_p = str(Settings.get_active_db_path())
+        engine = StatsEngine(db_path=db_p)
+        
+        # USE SINGLE PERSISTENT CONNECTION FOR BATCH
+        with duckdb.connect(db_p) as conn:
+            if asin:
+                # Support multiple ASINs separated by comma
+                target_asins = [a.strip() for a in asin.split(',') if a.strip()]
+                logger.info(f"📊 [Recalc] Processing {len(target_asins)} targeted ASINs...")
+                for a in target_asins:
+                    engine.calculate_and_save(a, conn=conn)
+                    logger.info(f"   ✅ [Recalc] Completed for {a}")
+            else:
+                # SMART GLOBAL RECALC: Only target ASINs with fresh reviews
+                query = """
+                    SELECT DISTINCT r.parent_asin 
+                    FROM reviews r
+                    LEFT JOIN product_stats ps ON r.parent_asin = ps.asin
+                    LEFT JOIN (
+                        SELECT parent_asin, MAX(created_at) as max_created 
+                        FROM review_tags 
+                        GROUP BY 1
+                    ) rt ON r.parent_asin = rt.parent_asin
+                    WHERE r.mining_status = 'COMPLETED'
+                    AND (
+                        ps.last_updated IS NULL 
+                        OR r.ingested_at >= ps.last_updated
+                        OR rt.max_created >= ps.last_updated
+                    )
+                """
+                
+                asins_to_calc = [r[0] for r in conn.execute(query).fetchall()]
+
+                if not asins_to_calc:
+                    logger.info("✨ [Recalc] Everything is already up to date.")
+                    return
+
+                logger.info(f"📊 [Recalc] Processing {len(asins_to_calc)} ASINs with new data...")
+                for a in asins_to_calc:
+                    if a: 
+                        engine.calculate_and_save(a, conn=conn)
+                        # Small sleep to keep CPU cool (Optional)
+                        import time
+                        time.sleep(0.05)
+                logger.info(f"✅ [Recalc] Smart Global task complete.")
+            
+    except Exception as e:
+        logger.error(f"❌ [Recalc] Failed: {e}")
+
+@app.post("/trigger/recalc", status_code=202)
+def trigger_recalc(background_tasks: BackgroundTasks, asin: str = None):
+    background_tasks.add_task(run_recalc_task, asin)
+    return {"status": "accepted", "job": "recalc", "target": asin or "GLOBAL"}
+
+@app.post("/admin/run_migration_v2")
+def trigger_migration_v2():
+    try:
+        from scout_app.core.migration_v2 import migrate_v2_social_wallet
+        migrate_v2_social_wallet()
+        return {"status": "success", "message": "Migration V2 completed."}
+    except Exception as e:
+        logger.error(f"Migration Failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/admin/exec_cmd")
+def exec_cmd(req: CommandRequest):
+    """
+    Execute SAFE shell commands via Dropdown Palette.
+    Whitelist prevents RCE abuse.
+    """
+    cmd = req.cmd.strip()
+    
+    # Whitelist Check
+    allowed_prefixes = [
+        "ls ", "du ", "tail ", 
+        "python manage.py batch-status", 
+        "python manage.py batch-collect",
+        "python manage.py batch-submit-miner",
+        "python manage.py batch-submit-janitor",
+        "python manage.py reset"
+    ]
+    
+    is_safe = any(cmd.startswith(p) for p in allowed_prefixes)
+    if not is_safe:
+        raise HTTPException(status_code=403, detail="Command not allowed. Please use the Dropdown Palette.")
+
+    try:
+        # Run command and capture output (Timeout 300s for batch tasks)
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
+        return {
+            "cmd": cmd,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "returncode": result.returncode
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/admin/dedup/stats")
+def get_dedup_stats():
+    try:
+        import duckdb
+        from scout_app.core.config import Settings
+        db_path = str(Settings.get_active_db_path())
+        
+        query = """
+        WITH enriched_tags AS (
+            SELECT 
+                rt.*,
+                CASE WHEN am.standard_aspect IS NOT NULL THEN 1 ELSE 0 END as is_cleaned
+            FROM review_tags rt
+            LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect
+        ),
+        ranked_tags AS (
+            SELECT 
+                *,
+                ROW_NUMBER() OVER (
+                    PARTITION BY review_id, quote, sentiment 
+                    ORDER BY is_cleaned DESC, created_at DESC
+                ) as rank
+            FROM enriched_tags
+        )
+        SELECT 
+            CASE WHEN rank = 1 THEN 'KEEP' ELSE 'DELETE' END as action,
+            COUNT(*) as count
+        FROM ranked_tags
+        GROUP BY 1
+        """
+        with duckdb.connect(db_path, read_only=True) as conn:
+            df = conn.execute(query).df()
+            stats = df.set_index('action')['count'].to_dict()
+            return {
+                "active_db": os.path.basename(db_path),
+                "total_rows": int(df['count'].sum()),
+                "duplicates": int(stats.get('DELETE', 0)),
+                "clean_rows": int(stats.get('KEEP', 0))
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/admin/dedup/run")
+def run_dedup(background_tasks: BackgroundTasks):
+    def dedup_job():
+        logger.info("🧹 [Dedup] Starting Smart Cleanup...")
+        try:
+            import duckdb
+            import shutil
+            from scout_app.core.config import Settings
+            
+            active_path = Settings.get_active_db_path()
+            standby_path = Settings.get_standby_db_path()
+            
+            # 1. Sync
+            shutil.copy(active_path, standby_path)
+            
+            # 2. Clean Standby
+            with duckdb.connect(str(standby_path)) as conn:
+                conn.execute("""
+                    DELETE FROM review_tags 
+                    WHERE tag_id IN (
+                        SELECT tag_id FROM (
+                            SELECT 
+                                rt.tag_id,
+                                ROW_NUMBER() OVER (
+                                    PARTITION BY rt.review_id, rt.quote, rt.sentiment 
+                                    ORDER BY (CASE WHEN am.standard_aspect IS NOT NULL THEN 1 ELSE 0 END) DESC, rt.created_at DESC
+                                ) as rank
+                            FROM review_tags rt
+                            LEFT JOIN aspect_mapping am ON rt.aspect = am.raw_aspect
+                        ) WHERE rank > 1
+                    )
+                """)
+            
+            # 3. Swap
+            Settings.swap_db()
+            logger.info(f"✅ [Dedup] Cleanup complete. Swapped to {os.path.basename(standby_path)}")
+            
+        except Exception as e:
+            logger.error(f"❌ [Dedup] Failed: {e}")
+
+    background_tasks.add_task(dedup_job)
+    return {"status": "accepted", "message": "Dedup job started in background."}
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)

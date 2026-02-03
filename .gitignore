@@ -1,0 +1,76 @@
+# --- Python Standard ---
+__pycache__/
+*.py[oc]
+*.pyo
+*.pyd
+build/
+dist/
+wheels/
+*.egg-info
+.venv
+venv
+env
+
+# --- Secrets & Config ---
+.env
+.env.local
+.DS_Store
+*.Zone.Identifier
+*.tmp
+*.bak
+*.swp
+AGENT.md
+GEMINI.md
+# --- Project Data (BIG NO-NO) ---
+archived/
+staging_data/
+archived_data/
+research_results/
+upload_batch_*/
+reviews_by_asin_excel/
+reports/
+*.duckdb
+*.duckdb.wal
+scout_app/database/*.duckdb
+*.xlsx
+*.csv
+*.jsonl
+*.pdf
+*.png
+*.jpg
+*.jpeg
+
+# --- Personal / Internal Tracking ---
+kpi_progress_tracking.md
+repo_feedback.md
+keplo_clone_idea_19jan26.md
+# --- Logs & Runtime ---
+*.log
+scout_app/logs/
+npm-debug.log*
+
+# --- IDEs ---
+.vscode/
+.idea/
+
+# --- Adhoc Scripts (Sensitive) ---
+# Supermetrics Adhoc
+spmt/
+scripts/supermetrics_puller.py
+scripts/supermetrics_puller_v2.py
+scripts/run_supermetrics.py
+scripts/pull_ads_daily_loop.py
+scripts/finalize_ads_data.py
+staging_data/amazon_ads_*
+staging_data/supermetrics_export.csv
+reports/amazon_ads_export_*
+reports/FINAL_AMAZON_ADS_JAN_2026.csv
+
+scripts/view_remote_feedback.py
+remote_feedback_report.md
+
+# Sensitive Scripts (IP/Passwords)
+scripts/seed_users.py
+scripts/hot_patch_all.sh
+scripts/deploy_db_overwrite.sh
+scripts/hot_patch_ui.sh
