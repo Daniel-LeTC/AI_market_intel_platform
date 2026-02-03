@@ -130,6 +130,14 @@ class DetectiveAgent:
                 result["top_aspects"]["strengths"] = [a["aspect"] for a in sw if a.get("net_impact", 0) > 0][:5]
                 result["top_aspects"]["weaknesses"] = [a["aspect"] for a in sw if a.get("net_impact", 0) < 0][-5:]
 
+                # --- NEW: Preference for Pre-calculated stats over raw product metadata ---
+                kpis = stats.get("kpis", {})
+                if kpis:
+                    result["market_stats"] = {
+                        "avg_rating": kpis.get("avg_rating"),
+                        "total_reviews": kpis.get("total_reviews"),
+                    }
+
             return json.dumps(result, ensure_ascii=False)
         except Exception as e:
             return json.dumps({"error": str(e), "asin": asin})
