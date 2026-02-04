@@ -74,3 +74,11 @@ scripts/seed_users.py
 scripts/hot_patch_all.sh
 scripts/deploy_db_overwrite.sh
 scripts/hot_patch_ui.sh
+
+# --- AI & Temp Docs ---
+CHORE.md
+PROJECT_STATUS.md
+STATUS.md
+slides_content.md
+temp_asin.json
+temp_json.json

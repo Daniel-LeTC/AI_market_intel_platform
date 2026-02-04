@@ -26,26 +26,16 @@ def render_xray_tab(selected_asin):
     if mode_key not in st.session_state:
         st.session_state[mode_key] = "📦 Từng sản phẩm"
 
-    # Control index via State
-    current_mode = st.session_state[mode_key]
-    idx = 0 if current_mode == "📦 Từng sản phẩm" else 1
-
     view_mode = st.radio(
         "Chế độ hiển thị (Display Mode):",
         ["📦 Từng sản phẩm", "🔥 So sánh thị trường (Top 50)"],
-        index=idx,
+        index=0 if st.session_state[mode_key] == "📦 Từng sản phẩm" else 1,
         horizontal=True,
         help="So sánh sản phẩm hiện tại hoặc xem bức tranh toàn cảnh 50 đối thủ hàng đầu.",
-        # key="xray_radio_widget",  <-- REMOVED KEY to avoid State Conflict
+        key="xray_radio_widget",
     )
-    
-    # Manual Sync: UI -> State
-    if view_mode != st.session_state[mode_key]:
-        st.session_state[mode_key] = view_mode
-        st.rerun()
-
-    # Sync widget back to state (redundant but safe)
-    # st.session_state[mode_key] = view_mode 
+    # Sync widget back to state
+    st.session_state[mode_key] = view_mode
 
     if "thị trường" in view_mode:
         render_mass_mode(selected_asin)
@@ -495,6 +485,4 @@ def render_mass_mode(selected_asin):
             st.session_state["main_asin_selector"] = target_asin
             # Switch back to Single View
             st.session_state["xray_view_mode_final"] = "📦 Từng sản phẩm"
-            # FIX: Force radio widget to update its state to avoid infinite loop
-            st.session_state["xray_radio_widget"] = "📦 Từng sản phẩm"
             st.rerun()

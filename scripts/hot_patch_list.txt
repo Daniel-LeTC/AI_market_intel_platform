@@ -1,0 +1,1 @@
+scout_app/ui/tabs/xray.py:scout_ui_prod:/app/scout_app/ui/tabs/xray.py

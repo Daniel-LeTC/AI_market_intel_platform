@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  # 1. The Detective UI (Streamlit)
+  ui:
+    build: .
+    container_name: scout_ui
+    # Use python -m to avoid PATH issues
+    command: ["python", "-m", "streamlit", "run", "scout_app/Market_Intelligence.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    ports:
+      - "8501:8501"
+    volumes:
+      - .:/app  # Mount current dir for live reload & data access
+    env_file:
+      - .env
+    depends_on:
+      - worker
+    restart: always
+    networks:
+      - scout_net
+
+  # 2. The Gatekeeper Worker (FastAPI)
+  worker:
+    build: .
+    container_name: scout_worker
+    # Use python -m to avoid PATH issues
+    command: ["python", "-m", "uvicorn", "worker_api:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    restart: always
+    networks:
+      - scout_net
+
+networks:
+  scout_net:
+    driver: bridge

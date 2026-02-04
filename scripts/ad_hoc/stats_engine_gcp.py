@@ -16,19 +16,6 @@ class StatsEngine:
         res = conn.execute(sql, params).fetchone()
         return res[0] if res else None
 
-    # --- HELPERS ---
-    def _safe_float(self, val, default=0.0):
-        try:
-            return float(val) if val is not None else default
-        except:
-            return default
-
-    def _safe_int(self, val, default=0):
-        try:
-            return int(val) if val is not None else default
-        except:
-            return default
-
     def calculate_kpis(self, conn, asin):
         """Extract basic KPIs from products table (with fallback to reviews)."""
         sql = """
@@ -52,8 +39,8 @@ class StatsEngine:
             [asin],
         ).fetchone()
 
-        local_total = local_stats[0] if local_stats and local_stats[0] is not None else 0
-        local_avg = local_stats[1] if local_stats and local_stats[1] is not None else 0.0
+        local_total = local_stats[0] if local_stats else 0
+        local_avg = local_stats[1] if local_stats else 0.0
 
         if df.empty:
             return {
@@ -67,11 +54,11 @@ class StatsEngine:
         row = df.iloc[0]
 
         # Use Real Ratings if available, else local
-        total_reviews = self._safe_int(row["real_total_ratings"], local_total)
-        avg_rating = self._safe_float(row["real_average_rating"], local_avg)
+        total_reviews = int(row["real_total_ratings"]) if pd.notnull(row["real_total_ratings"]) else local_total
+        avg_rating = float(row["real_average_rating"]) if pd.notnull(row["real_average_rating"]) else float(local_avg)
 
         # Variations Fallback
-        variations = self._safe_int(row["variation_count"], 0)
+        variations = int(row["variation_count"]) if pd.notnull(row["variation_count"]) else 0
         if variations == 0:
             try:
                 v_count = conn.execute(
@@ -82,17 +69,15 @@ class StatsEngine:
                 pass
 
         # Calculate neg_pct from breakdown if possible
-        neg_pct = 0.0
+        neg_pct = 0
         try:
             rb = row["rating_breakdown"]
-            if rb:
-                if isinstance(rb, str):
-                    rb = json.loads(rb)
-                
-                if isinstance(rb, dict):
-                    total_rb = sum(self._safe_float(v) for v in rb.values())
-                    if total_rb > 0:
-                        neg_pct = (self._safe_float(rb.get("1", 0)) + self._safe_float(rb.get("2", 0))) / total_rb * 100
+            if isinstance(rb, str):
+                rb = json.loads(rb)
+            total_rb = sum(rb.values())
+            if total_rb > 0:
+                # Assuming rb values are counts or percentages
+                neg_pct = (float(rb.get("1", 0)) + float(rb.get("2", 0))) / total_rb * 100
         except:
             pass
 
@@ -130,13 +115,11 @@ class StatsEngine:
         p_row = self._query_df(conn, "SELECT real_total_ratings, rating_breakdown FROM products WHERE asin = ?", [asin])
 
         # Fallback counts if real metadata is missing
-        local_total_res = conn.execute("SELECT COUNT(*) FROM reviews WHERE parent_asin = ?", [asin]).fetchone()
-        local_total = local_total_res[0] if local_total_res and local_total_res[0] is not None else 0
+        local_total = conn.execute("SELECT COUNT(*) FROM reviews WHERE parent_asin = ?", [asin]).fetchone()[0]
 
-        real_total = local_total
-        if not p_row.empty:
-            real_total = self._safe_int(p_row.iloc[0]["real_total_ratings"], local_total)
-            if real_total == 0: real_total = local_total
+        real_total = p_row.iloc[0]["real_total_ratings"] if not p_row.empty else local_total
+        if pd.isnull(real_total) or real_total == 0:
+            real_total = local_total  # Hard fallback
 
         if real_total == 0:
             return []
@@ -147,15 +130,13 @@ class StatsEngine:
         try:
             if breakdown_json and breakdown_json != "{}" and breakdown_json != "":
                 bd = json.loads(breakdown_json) if isinstance(breakdown_json, str) else breakdown_json
-                
-                total_bd = 0
-                if isinstance(bd, dict):
-                    total_bd = sum(self._safe_float(v) for v in bd.values())
-                
+                total_bd = sum(bd.values())
                 if total_bd > 0:
                     for k, v in bd.items():
-                        real_counts[int(k)] = (self._safe_float(v) / total_bd) * real_total
+                        real_counts[int(k)] = (float(v) / total_bd) * real_total
             else:
+                # No breakdown, use flat distribution or skip
+                # (Previous fallback removed to maintain data integrity)
                 for s in real_counts:
                     real_counts[s] = real_total / 5.0
         except:
@@ -245,7 +226,15 @@ class StatsEngine:
                 }
             )
 
+        # Sort by magnitude of impact (Absolute Net or Total Volume?)
+        # User wants to see what drives 1 star vs 5 star.
+        # Sort by Net Impact (Most Positive to Most Negative)
         results.sort(key=lambda x: x["net_impact"], reverse=True)
+
+        # Take Top 15 (Positive & Negative mix)
+        # To ensure we see both extremes, let's take Top 8 Positive and Top 7 Negative?
+        # Or just sort by Total Volume?
+        # Let's return Top 20 by Total Volume, then UI can sort by Net Impact.
         results.sort(key=lambda x: x["total_impact_vol"], reverse=True)
         return results[:20]
 
@@ -282,26 +271,23 @@ class StatsEngine:
 
     def save_to_db(self, asin, metrics_dict, conn=None):
         """Upsert metrics into product_stats table."""
-        try:
-            json_str = json.dumps(metrics_dict)
-            now = datetime.now()
+        json_str = json.dumps(metrics_dict)
+        now = datetime.now()
 
-            sql_stats = """
-                INSERT INTO product_stats (asin, last_updated, metrics_json)
-                VALUES (?, ?, ?)
-                ON CONFLICT (asin) DO UPDATE SET 
-                    metrics_json = EXCLUDED.metrics_json,
-                    last_updated = EXCLUDED.last_updated
-            """
+        # 1. Update product_stats (SWOT Source)
+        sql_stats = """
+            INSERT INTO product_stats (asin, last_updated, metrics_json)
+            VALUES (?, ?, ?)
+            ON CONFLICT (asin) DO UPDATE SET 
+                metrics_json = EXCLUDED.metrics_json,
+                last_updated = EXCLUDED.last_updated
+        """
 
-            if conn:
+        if conn:
+            conn.execute(sql_stats, [asin, now, json_str])
+        else:
+            with duckdb.connect(self.db_path) as conn:
                 conn.execute(sql_stats, [asin, now, json_str])
-            else:
-                with duckdb.connect(self.db_path) as conn:
-                    conn.execute(sql_stats, [asin, now, json_str])
-        except Exception as e:
-            # Swallow error to prevent crash on Foreign Key constraints
-            pass
 
     def calculate_and_save(self, asin, conn=None):
         """Single ASIN calculation and save."""

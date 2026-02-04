@@ -1,0 +1,38 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.venv
+.env
+venv
+
+# Project Data (Do NOT bake data into image)
+staging_data/
+dataset_*/
+archived/
+archived_data/
+research_results/
+reviews_by_asin_excel/
+upload_batch_*/
+reports/
+
+# Database (Mount via Volume instead)
+scout_app/database/archived/
+scout_app/database/*.duckdb
+scout_app/database/current_db.txt
+*.duckdb
+
+# IDE & Linter
+.vscode/
+.idea/
+.ruff_cache/
+
+# Logs
+scout_app/logs/*.log
+*.log
+scout_app/pages/05_Social_Scout_backup.py
