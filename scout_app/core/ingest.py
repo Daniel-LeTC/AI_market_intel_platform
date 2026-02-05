@@ -206,40 +206,87 @@ class DataIngester:
         if p_df.is_empty():
             return
         
-        # DEBUG: Let's see what we got
-        print("--- DEBUG P_DF (Metadata) ---")
-        print(p_df.select(["asin", "brand", "title"]).head(5))
+        # DEBUG: Write to file so agent can read
+        try:
+            debug_info = {
+                "columns": p_df.columns,
+                "sample_j3": p_df.filter(pl.col('asin') == 'B0C7CC5BJ3').to_dicts()
+            }
+            with open("scout_app/logs/debug_ingest.json", "w") as f:
+                json.dump(debug_info, f, indent=2)
+        except:
+            pass
 
-        # --- DB UPSERT ---
+        # --- DB UPSERT (Robust Join-Update Strategy) ---
         conn.register("temp_p", p_df.to_arrow())
+        
+        # 1. Update product_parents (The Families)
         conn.execute("""
-            INSERT INTO product_parents (parent_asin, category, title, brand, image_url, last_updated)
+            INSERT OR IGNORE INTO product_parents (parent_asin, category, title, brand, image_url, last_updated)
             SELECT DISTINCT COALESCE(parent_asin, asin), COALESCE(category, 'generic'), title, brand, image_url, now()
-            FROM temp_p ON CONFLICT (parent_asin) DO UPDATE SET
-                category = COALESCE(excluded.category, product_parents.category),
-                title = COALESCE(excluded.title, product_parents.title), 
-                brand = COALESCE(excluded.brand, product_parents.brand),
-                image_url = COALESCE(excluded.image_url, product_parents.image_url), 
-                last_updated = now()
+            FROM temp_p
         """)
         conn.execute("""
-            INSERT INTO products (asin, parent_asin, title, brand, image_url, real_average_rating, real_total_ratings, 
-                                rating_breakdown, main_niche, category, material, target_audience, specs_json, last_updated)
-            SELECT asin, COALESCE(parent_asin, asin), title, brand, image_url, real_average_rating, real_total_ratings, 
-                   rating_breakdown, main_niche, category, material, target_audience, specs_json, now()
-            FROM temp_p ON CONFLICT (asin) DO UPDATE SET
-                title = COALESCE(excluded.title, products.title),
-                brand = COALESCE(excluded.brand, products.brand),
-                image_url = COALESCE(excluded.image_url, products.image_url),
-                real_average_rating = COALESCE(excluded.real_average_rating, products.real_average_rating),
-                real_total_ratings = COALESCE(excluded.real_total_ratings, products.real_total_ratings),
-                rating_breakdown = COALESCE(excluded.rating_breakdown, products.rating_breakdown),
-                main_niche = COALESCE(excluded.main_niche, products.main_niche),
-                material = COALESCE(excluded.material, products.material),
-                target_audience = COALESCE(excluded.target_audience, products.target_audience),
-                specs_json = COALESCE(excluded.specs_json, products.specs_json),
+            UPDATE product_parents
+            SET 
+                category = COALESCE(temp_p.category, product_parents.category),
+                title = COALESCE(temp_p.title, product_parents.title),
+                brand = COALESCE(temp_p.brand, product_parents.brand),
+                image_url = COALESCE(temp_p.image_url, product_parents.image_url),
                 last_updated = now()
+            FROM temp_p
+            WHERE product_parents.parent_asin = COALESCE(temp_p.parent_asin, temp_p.asin)
         """)
+
+        # 2. Update products (The Children)
+        # 2.1. Insert new ones first
+        conn.execute("""
+            INSERT OR IGNORE INTO products (asin, parent_asin, title, brand, image_url, real_average_rating, 
+                                          real_total_ratings, rating_breakdown, main_niche, category, 
+                                          material, target_audience, specs_json, last_updated)
+            SELECT asin, COALESCE(parent_asin, asin), title, brand, image_url, real_average_rating, 
+                   real_total_ratings, rating_breakdown, main_niche, category, 
+                   material, target_audience, specs_json, now()
+            FROM temp_p
+        """)
+        # 2.2. Update existing ones (Metadata Enrichment)
+        conn.execute("""
+            UPDATE products
+            SET 
+                parent_asin = COALESCE(temp_p.parent_asin, products.parent_asin),
+                title = COALESCE(temp_p.title, products.title),
+                brand = COALESCE(temp_p.brand, products.brand),
+                image_url = COALESCE(temp_p.image_url, products.image_url),
+                real_average_rating = COALESCE(temp_p.real_average_rating, products.real_average_rating),
+                real_total_ratings = COALESCE(temp_p.real_total_ratings, products.real_total_ratings),
+                rating_breakdown = COALESCE(temp_p.rating_breakdown, products.rating_breakdown),
+                main_niche = COALESCE(temp_p.main_niche, products.main_niche),
+                material = COALESCE(temp_p.material, products.material),
+                target_audience = COALESCE(temp_p.target_audience, products.target_audience),
+                specs_json = COALESCE(temp_p.specs_json, products.specs_json),
+                last_updated = now()
+            FROM temp_p
+            WHERE products.asin = temp_p.asin
+        """)
+        # 3. Infer Parent in 'products' table (The "Con báo hiếu Cha" Logic)
+        # If parent doesn't exist in products table, create it using child's metadata as a placeholder
+        conn.execute("""
+            INSERT INTO products (asin, parent_asin, title, brand, image_url, main_niche, category, verification_status, last_updated)
+            SELECT DISTINCT 
+                parent_asin, 
+                parent_asin, 
+                title, 
+                brand, 
+                image_url, 
+                main_niche, 
+                category, 
+                'INFERRED_FROM_CHILD', 
+                now()
+            FROM temp_p
+            WHERE parent_asin IS NOT NULL AND parent_asin != asin
+            ON CONFLICT (asin) DO NOTHING
+        """)
+
         conn.execute("""
             UPDATE product_parents SET niche = (
                 SELECT STRING_AGG(DISTINCT main_niche, ', ') FROM products 

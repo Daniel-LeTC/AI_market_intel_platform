@@ -17,11 +17,23 @@ class MetadataParser:
         # 1. Standardize Column Names
         df = df.rename({c: c.lower() for c in df.columns})
         
+        # FIX: Apify sometimes puts the requested child ASIN in 'variationid' 
+        # and puts the Parent ASIN in 'asin'. We want the Child metadata
+        # BUT we must preserve the Parent link.
+        if "variationid" in df.columns:
+            # If parent_asin doesn't exist, use the current 'asin' column (which is the parent)
+            if "parentasin" not in df.columns and "parent_asin" not in df.columns:
+                df = df.with_columns(pl.col("asin").alias("parent_asin"))
+            
+            df = df.with_columns(
+                pl.coalesce([pl.col("variationid"), pl.col("asin")]).alias("asin")
+            )
+        
         # 2. Smart Mapping (Unified Logic)
         # Priorities:
         # - countratings > countreview (Review Scraper metadata is usually better for total)
-        # - producttitle > title
-        mapping = {"asin": "asin", "parentasin": "parent_asin", "parent_asin": "parent_asin"}
+        # - producttitle is the ONLY source for product title
+        mapping = {"asin": "asin", "parent_asin": "parent_asin", "parentasin": "parent_asin"}
         mapping.update({
             "producttitle": "title",
             "manufacturer": "brand",
@@ -111,7 +123,7 @@ class MetadataParser:
             "asin": pl.Utf8, "parent_asin": pl.Utf8, "title": pl.Utf8, "brand": pl.Utf8,
             "image_url": pl.Utf8, "real_average_rating": pl.Float64, "real_total_ratings": pl.Int32,
             "rating_breakdown": pl.Utf8, "variation_count": pl.Int32, "material": pl.Utf8,
-            "main_niche": pl.Utf8, "category": pl.Utf8, "specs_json": pl.Utf8
+            "main_niche": pl.Utf8, "category": pl.Utf8, "specs_json": pl.Utf8, "target_audience": pl.Utf8
         }
         
         for col, dtype in type_map.items():

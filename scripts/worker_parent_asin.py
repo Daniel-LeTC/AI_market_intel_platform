@@ -59,7 +59,7 @@ async def main(asins: list, category: str = None):
         for asin in asins:
             parent = await find_parent_asin(asin)
             if parent:
-                # Update DB
+                # Update DB - Product Parents
                 if category:
                     conn.execute(
                         """
@@ -84,6 +84,16 @@ async def main(asins: list, category: str = None):
                     """,
                         [parent],
                     )
+
+                # NEW: Ensure Parent exists in products table as well (Placeholder)
+                conn.execute(
+                    """
+                    INSERT INTO products (asin, parent_asin, category, verification_status, last_updated)
+                    VALUES (?, ?, ?, 'PARENT_PLACEHOLDER', now())
+                    ON CONFLICT (asin) DO NOTHING
+                    """,
+                    [parent, parent, category],
+                )
 
                 # Update Queue Status to COMPLETED
                 conn.execute(
