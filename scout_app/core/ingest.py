@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Dict, Any
 import shutil
 import os
+import json
 from .config import Settings
 
 
@@ -211,6 +212,14 @@ class DataIngester:
                 category_hint = "comforter"
 
         mapping = {"asin": "asin", "parentasin": "parent_asin", "parent_asin": "parent_asin"}
+        mapping.update({
+            "producttitle": "title",
+            "manufacturer": "brand",
+            "countratings": "real_total_ratings",
+            "productrating": "real_average_rating",
+            "imageurllist/0": "image_url"
+        })
+
         if category_hint == "comforter":
             mapping.update(
                 {
@@ -222,7 +231,7 @@ class DataIngester:
                     "productrating": "real_average_rating",
                 }
             )
-        elif "productdetails" in df.columns or "productrating" in df.columns:
+        elif "productdetails" in df.columns:
             mapping.update(
                 {
                     "title": "title",
@@ -232,8 +241,6 @@ class DataIngester:
                     "mainimage/imageurl": "image_url",
                 }
             )
-        else:
-            mapping.update({"producttitle": "title", "brand": "brand", "real_total_ratings": "real_total_ratings"})
 
         exprs = []
         added = set()
@@ -251,21 +258,30 @@ class DataIngester:
                     exprs.append(pl.col(r).alias(d))
                 added.add(d)
 
+        # --- RATING BREAKDOWN LOGIC ---
+        rb_map = {
+            "5": "reviewsummary/fivestar/percentage",
+            "4": "reviewsummary/fourstar/percentage",
+            "3": "reviewsummary/threestar/percentage",
+            "2": "reviewsummary/twostar/percentage",
+            "1": "reviewsummary/onestar/percentage"
+        }
+        rb_cols_present = [v for v in rb_map.values() if v in df.columns]
+        
+        if rb_cols_present:
+            # Construct JSON string like {"5": "80%", "4": "10%", ...}
+            df = df.with_columns([
+                pl.struct([pl.col(v).alias(k) for k, v in rb_map.items() if v in df.columns])
+                .map_elements(lambda x: json.dumps(x) if x else None, return_dtype=pl.Utf8)
+                .alias("rating_breakdown")
+            ])
+            if "rating_breakdown" not in added:
+                exprs.append(pl.col("rating_breakdown"))
+                added.add("rating_breakdown")
+
         if not exprs:
             return
         p_df = df.select(exprs).unique(subset=["asin"])
-
-        # --- CLEAN BRAND NAME ---
-        if "brand" in p_df.columns:
-            p_df = p_df.with_columns(
-                pl.col("brand")
-                .str.replace("Visit the ", "")
-                .str.replace(" Store", "")
-                .str.replace("Brand: ", "")
-                .str.replace(r"(?i)^by\s+", "")
-                .str.replace(r"\s*\((Author|Producer|Creator|Contributor|Illustrator)\)", "")
-                .str.strip_chars()
-            )
 
         type_map = {
             "asin": pl.Utf8,
@@ -287,6 +303,35 @@ class DataIngester:
             if col == "category" and p_df["category"].null_count() == len(p_df):
                 p_df = p_df.with_columns(pl.lit(category_hint).alias("category"))
 
+        # --- CLEAN & FALLBACK BRAND NAME ---
+        p_df = p_df.with_columns(
+            pl.col("brand")
+            .str.replace("Visit the ", "")
+            .str.replace(" Store", "")
+            .str.replace("Brand: ", "")
+            .str.replace(r"(?i)^by\s+", "")
+            .str.replace(r"\s*\((Author|Producer|Creator|Contributor|Illustrator)\)", "")
+            .str.strip_chars()
+        )
+        # Fallback: If brand is null, try to find ALL CAPS brand at start, else first word
+        if "title" in p_df.columns:
+            p_df = p_df.with_columns(
+                pl.when(pl.col("brand").is_null() | (pl.col("brand") == ""))
+                .then(
+                    pl.col("title")
+                    .str.extract(r"^([A-Z0-9]{2,}(?:\s[A-Z0-9]{2,})*)", 1) # Try CAPS sequence
+                    .fill_null(pl.col("title").str.split(" ").list.get(0)) # FIXED: Use list.get(0)
+                    .str.replace_all(r"[,:\-]", "") # Clean punctuation
+                    .str.strip_chars()
+                )
+                .otherwise(pl.col("brand"))
+                .alias("brand")
+            )
+        
+        # DEBUG: Let's see what we got
+        print("--- DEBUG P_DF (Metadata) ---")
+        print(p_df.select(["asin", "brand", "title"]).head(5))
+
         # --- DB UPSERT ---
         conn.register("temp_p", p_df.to_arrow())
         conn.execute("""
@@ -294,18 +339,24 @@ class DataIngester:
             SELECT DISTINCT COALESCE(parent_asin, asin), COALESCE(category, 'generic'), title, brand, image_url, now()
             FROM temp_p ON CONFLICT (parent_asin) DO UPDATE SET
                 category = COALESCE(excluded.category, product_parents.category),
-                title = excluded.title, brand = excluded.brand,
-                image_url = COALESCE(excluded.image_url, product_parents.image_url), last_updated = now()
+                title = COALESCE(excluded.title, product_parents.title), 
+                brand = COALESCE(excluded.brand, product_parents.brand),
+                image_url = COALESCE(excluded.image_url, product_parents.image_url), 
+                last_updated = now()
         """)
         conn.execute("""
             INSERT INTO products (asin, parent_asin, title, brand, image_url, real_average_rating, real_total_ratings, 
-                                main_niche, category, last_updated)
+                                rating_breakdown, main_niche, category, last_updated)
             SELECT asin, COALESCE(parent_asin, asin), title, brand, image_url, real_average_rating, real_total_ratings, 
-                   main_niche, category, now()
+                   rating_breakdown, main_niche, category, now()
             FROM temp_p ON CONFLICT (asin) DO UPDATE SET
-                title = COALESCE(CAST(excluded.title AS VARCHAR), products.title),
-                brand = COALESCE(CAST(excluded.brand AS VARCHAR), products.brand),
-                main_niche = COALESCE(CAST(excluded.main_niche AS VARCHAR), products.main_niche),
+                title = COALESCE(excluded.title, products.title),
+                brand = COALESCE(excluded.brand, products.brand),
+                image_url = COALESCE(excluded.image_url, products.image_url),
+                real_average_rating = COALESCE(excluded.real_average_rating, products.real_average_rating),
+                real_total_ratings = COALESCE(excluded.real_total_ratings, products.real_total_ratings),
+                rating_breakdown = COALESCE(excluded.rating_breakdown, products.rating_breakdown),
+                main_niche = COALESCE(excluded.main_niche, products.main_niche),
                 last_updated = now()
         """)
         conn.execute("""
