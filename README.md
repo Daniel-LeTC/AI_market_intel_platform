@@ -7,7 +7,7 @@
 
 ## 📖 Overview
 
-The **Bright Scraper Tool** (internal codename: *Keplo Clone*) is a sophisticated market research platform designed to give sellers a competitive edge. It automates the collection, analysis, and visualization of product data from Amazon and social media trends from TikTok/Meta.
+The **Bright Scraper Tool** is a sophisticated market research platform designed to give sellers a competitive edge. It automates the collection, analysis, and visualization of product data from Amazon and social media trends from TikTok/Meta.
 
 By combining deep scraping capabilities with advanced LLM agents, the system transforms raw review data into actionable strategy reports, "Detective" insights, and direct competitor showdowns.
 
