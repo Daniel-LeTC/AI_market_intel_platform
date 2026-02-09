@@ -1,46 +1,51 @@
-# 📊 Presentation Visuals for End-Users
+# 📊 Presentation Visuals for End-Users (Refactored)
 
 This document contains simplified diagrams designed for stakeholder presentations. They focus on **Business Value** and **User Workflow** rather than Technical Implementation.
 
-## 1. The "Big Picture" (Hệ thống làm gì?)
+## 1. The Two-Track Strategy (Hai mũi nhọn tấn công)
 
-Dùng cái này để giải thích tổng quan các khối chức năng của App.
+Hệ thống được chia làm 2 phân khu độc lập để tránh nhiễu dữ liệu.
+
+```mermaid
+graph TD
+    subgraph TRACK_A ["TRACK A: MARKET INTELLIGENCE (Sẵn sàng)"]
+        direction TB
+        A1[Quét Amazon: Metadata + Reviews]
+        A2[Phân tích DNA Sản phẩm & Chấm điểm đối thủ]
+    end
+
+    subgraph TRACK_B ["TRACK B: SOCIAL SCOUT (Đang phát triển - WIP)"]
+        direction TB
+        B1[Quét TikTok/Meta: Video + Comments]
+        B2[Bắt Trend & Theo dõi độ phủ thương hiệu]
+    end
+
+    TRACK_A --> Dash[Dashboard Phân Tích Thị Trường]
+    TRACK_B --> Trend[Báo Cáo Xu Hướng Mạng Xã Hội]
+```
+
+## 2. Market Intelligence Deep Dive (Cái hộp Amazon làm gì?)
+
+Giải thích cho User rằng chúng ta không chỉ đọc review, chúng ta "số hóa" sản phẩm bằng cách bóc tách Metadata và Reviews.
 
 ```mermaid
 graph LR
-    subgraph INPUT ["1. INPUT (Đầu vào)"]
-        A[User nhập ASIN]
-        B[Link TikTok/Facebook]
-    end
-
-    subgraph BLACKBOX ["2. THE MAGIC BOX (Xử lý)"]
+    Input[ASIN] --> Hunter[Data Hunter]
+    
+    subgraph PROCESS ["Xử lý đa luồng"]
         direction TB
-        Hunter[("🤖 Data Hunter
-(Tự động đi thu thập review, giá, thông số)")]
-        Cleaner[("🧹 Data Cleaner
-(Lọc rác, chuẩn hóa từ đồng nghĩa)")]
-        Brain[("🧠 AI Analyst
-(Đọc hiểu từng review, phân tích khen chê)")]
-        
-        Hunter --> Cleaner --> Brain
+        P1["📂 DNA Extractor: Bóc tách thông số (Chất liệu, Đối tượng, Tính năng)"]
+        P2["🧠 Review Miner: Đọc hiểu khen/chê từ khách hàng"]
     end
 
-    subgraph OUTPUT ["3. OUTPUT (Kết quả)"]
-        direction TB
-        Dash[("📊 Dashboard 4 Chiều
-(X-Ray, Showdown, DNA, Strategy)")]
-        Chat[("💬 Detective Bot
-(Hỏi đáp chiến lược 1-1)")]
-        Report[("📧 Weekly Email
-(Báo cáo tự động vào T2 hàng tuần)")]
-    end
-
-    INPUT --> BLACKBOX --> OUTPUT
+    Hunter --> P1
+    Hunter --> P2
+    
+    P1 --> Output["Bản đồ DNA & So sánh thông số"]
+    P2 --> Output2["Bản đồ nhiệt Market X-Ray"]
 ```
 
-## 2. The "User Journey" (User phải làm gì?)
-
-Dùng cái này để hướng dẫn User cách test và luồng đi từ A-Z.
+## 3. The "User Journey" (User phải làm gì?)
 
 ```mermaid
 sequenceDiagram
@@ -51,7 +56,7 @@ sequenceDiagram
     Note over User, App: Bước 1: Thu thập dữ liệu
     User->>App: Nhập mã ASIN sản phẩm cần soi
     User->>App: Bấm "Start Analysis"
-    App-->>User: "Đang chạy... đi uống cafe đi bro (30p)"
+    App-->>User: "Đang chạy... hệ thống đang bóc tách DNA & Review (30p)"
     
     Note over User, App: Bước 2: Phân tích & Soi mói
     User->>App: Mở Tab "Market X-Ray"
@@ -68,13 +73,11 @@ sequenceDiagram
     User->>Email: 🔍 Check: Số liệu trong mail có khớp trên App không?
 ```
 
-## 3. The "Feedback Checklist" (Cần User soi cái gì?)
-
-Đưa cái bảng này cho User bắt họ tick vào từng mục.
+## 4. The "Feedback Checklist" (Cần User soi cái gì?)
 
 | Module (Chức năng) | User cần kiểm tra (Feedback) | Mức độ quan trọng |
 | :--- | :--- | :--- |
 | **Market X-Ray** | Các cột "Aspect" (Ví dụ: Softness, Thickness) đã chuẩn chưa? Có bị trùng lặp không? | 🔥 CAO NHẤT |
 | **Product Showdown** | Điểm số "Weighted Score" có phản ánh đúng chất lượng sản phẩm so với đối thủ không? | 🔥 CAO |
+| **Product DNA** | Thông số kỹ thuật (Chất liệu, đối tượng) bóc tách từ Amazon có chính xác không? | ⭐ TB |
 | **Detective Bot** | Khi hỏi "Tại sao thằng A bán chạy hơn?", câu trả lời có logic không hay chém gió? | ⭐ TB |
-| **Data Quality** | Thông tin cơ bản (Giá, Title, Hình ảnh) có bị sai lệch so với Amazon/TikTok không? | ⭐ TB |
