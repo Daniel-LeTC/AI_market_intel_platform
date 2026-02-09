@@ -1,4 +1,4 @@
-# 🚀 Bright Scraper Tool - Market Intelligence Platform
+# 🚀 Market Intelligence Platform - Market Intelligence Platform
 
 > **The All-in-One Amazon Market Intelligence & Social Trends Engine.**
 > Leveraging **Gemini 2.5/3.0** for deep sentiment analysis, **DuckDB** for high-performance analytics, and **Streamlit** for an interactive, data-driven dashboard.
@@ -7,7 +7,7 @@
 
 ## 📖 Overview
 
-The **Bright Scraper Tool** is a sophisticated market research platform designed to give sellers a competitive edge. It automates the collection, analysis, and visualization of product data from Amazon and social media trends from TikTok/Meta.
+This tool is a sophisticated market research platform designed to give sellers a competitive edge. It automates the collection, analysis, and visualization of product data from Amazon and social media trends from TikTok/Meta.
 
 By combining deep scraping capabilities with advanced LLM agents, the system transforms raw review data into actionable strategy reports, "Detective" insights, and direct competitor showdowns.
 
@@ -57,7 +57,7 @@ A dedicated module for off-Amazon intelligence:
 ## 📂 Repository Structure
 
 ```graphql
-bright_scraper_tool/
+market_intel_platform/
 ├── scout_app/                  # MAIN APPLICATION CODE
 │   ├── Market_Intelligence.py  # 🚀 Entry Point (Streamlit Dashboard)
 │   ├── core/                   # 🧠 Backend Logic Modules
