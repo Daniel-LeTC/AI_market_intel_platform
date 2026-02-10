@@ -2,14 +2,14 @@
 
 ## 🎯 Mục đích Tài liệu
 Tài liệu này cung cấp cái nhìn đa chiều về hệ sinh thái AI:
-1.  **Executive View:** Tổng quan chiến lược cho Ban Lãnh đạo.
-2.  **Architect View:** Bản đồ chi tiết luồng dữ liệu và logic hệ thống.
-3.  **Engineer View:** Chi tiết kỹ thuật từng module để triển khai/bảo trì.
+1.  **Executive View:** Tổng quan chiến lược (Value Stream).
+2.  **Architect View:** Bản đồ chi tiết luồng dữ liệu (Detailed Logic).
+3.  **Engineer View:** Chi tiết kỹ thuật implementation (Code Level).
 
 ---
 
 ## 🌍 I. THE EXECUTIVE VIEW (MACRO MAP)
-*Góc nhìn dành cho BOD/Stakeholders: Bức tranh luồng giá trị (Value Stream).*
+*Góc nhìn dành cho BOD/Stakeholders: Bức tranh tổng thể.*
 
 ```mermaid
 graph LR
@@ -54,11 +54,11 @@ graph LR
 
 ---
 
-## 🗺️ II. THE ARCHITECT VIEW (DETAILED STRATEGIC MAP)
-*Dành cho Product Owners/Architects: Luồng vận hành chi tiết và các điểm chạm.*
+## 🗺️ II. THE ARCHITECT VIEW (DETAILED DEEP DIVE)
+*Góc nhìn dành cho Product Owners: Logic vận hành chi tiết & Feedback Loop.*
 
 ```mermaid
-graph TD
+graph TB
     %% --- STYLES ---
     classDef flow fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#000;
     classDef ai fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#000;
@@ -67,129 +67,188 @@ graph TD
     classDef output fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000;
     classDef hidden fill:#ffffff,stroke:#607d8b,stroke-width:2px,color:#607d8b,stroke-dasharray: 5 5;
 
-    %% --- LAYER 1: UNIFIED ACQUISITION ---
-    subgraph ACQ ["Layer 1: Unified Acquisition & Routing"]
+    %% --- LAYER 1: ACQUISITION ---
+    subgraph ACQ ["Layer 1: Unified Acquisition"]
         direction TB
-        Input_User[("👤 User Input")]:::flow
+        Input_User[("👤 User Input<br/>(ASIN / Keywords)")]:::flow
         
-        subgraph ECOM_FLOW ["E-Commerce Workflow"]
-            Node_Resolver["🔍 ASIN Resolver"]:::flow
-            Node_Forwarder{"Is Child?"}:::flow
-            Node_Competitor_Auto["🤖 Competitor Discovery"]:::hidden
-            Node_Fetcher_Meta["📦 Metadata Fetcher"]:::flow
-            Node_Fetcher_Review["📝 Review Fetcher"]:::flow
+        subgraph ECOM_FLOW ["🛒 E-Commerce Workflow"]
+            direction TB
+            Node_Resolver["🔍 ASIN Resolver<br/>(Parent/Child Check)"]:::flow
+            Node_Fetcher_Meta["📦 Metadata Fetcher<br/>(Specs/Price/Images)"]:::flow
+            Node_Fetcher_Review["📝 Review Fetcher<br/>(Text/Rating/Photos)"]:::flow
+            Node_Competitor_Auto["🤖 Competitor<br/>Auto-Discovery"]:::hidden
         end
         
-        subgraph SOCIAL_FLOW ["Social Workflow Engine"]
-            Node_Social_Plan["📅 Social Planning"]:::flow
-            Node_Social_Fetch["📱 Social Fetcher"]:::flow
+        subgraph SOCIAL_FLOW ["📱 Social Workflow"]
+            direction TB
+            Node_Social_Plan["📅 Social Planning<br/>(Budget/Filter)"]:::flow
+            Node_Social_Fetch["⚡ Social Fetcher<br/>(TikTok/Meta)"]:::flow
             Node_Social_Pricing["💰 Cost Estimator"]:::hidden
         end
     end
 
-    %% --- LAYER 2: DEEP INTELLIGENCE (AI CORE) ---
+    %% --- LAYER 2: INTELLIGENCE CORE ---
     subgraph INTEL ["Layer 2: AI Intelligence Core"]
         direction TB
-        Node_Ingest["📥 Universal Ingest"]:::storage
+        Node_Ingest["📥 Universal Ingest<br/>(Blue-Green DB)"]:::storage
 
-        subgraph MINER_LOGIC ["AI Miner"]
-            Node_Miner_Extract["🧠 Extraction"]:::ai
-            Node_Miner_Evidence["🔗 Evidence Linking"]:::ai
+        subgraph MINER_LOGIC ["⛏️ AI Miner (Extraction)"]
+            direction LR
+            Node_Miner_Extract["🧠 Aspect/Sentiment<br/>Extraction"]:::ai
+            Node_Miner_Evidence["🔗 Evidence Linking<br/>(Quotes/IDs)"]:::ai
         end
 
-        subgraph JANITOR_LOGIC ["Janitor"]
-            Node_Janitor_Match["🧹 Matching"]:::ai
-            Node_Janitor_Dict["📚 Dictionary"]:::storage
+        subgraph JANITOR_LOGIC ["🧹 Janitor (Clean)"]
+            direction LR
+            Node_Janitor_Match["🔍 Fuzzy/Vector<br/>Matching"]:::ai
+            Node_Janitor_Dict["📚 Canonical<br/>Dictionary"]:::storage
         end
 
-        subgraph STATS_LOGIC ["Stats Engine"]
+        subgraph STATS_LOGIC ["📊 Stats Engine"]
+            direction LR
             Node_Stats_Agg["∑ Aggregation"]:::ai
-            Node_Stats_Weight["⚖️ Bayesian Smooth"]:::ai
-            Node_Stats_Impact["📉 Impact Score"]:::ai
+            Node_Stats_Weight["⚖️ Bayesian<br/>Smoothing"]:::ai
+            Node_Stats_Impact["📉 Net Impact<br/>Calculation"]:::ai
         end
 
-        subgraph DETECTIVE_LOGIC ["Detective Agent"]
-            Node_RAG["🔍 RAG Retrieval"]:::ai
-            Node_Reasoning["🤔 Reasoning"]:::ai
+        subgraph DETECTIVE_LOGIC ["🕵️ Detective (Strategy)"]
+            direction LR
+            Node_RAG["🔎 RAG Retrieval<br/>(Data+Context)"]:::ai
+            Node_Reasoning["🤔 Strategic<br/>Reasoning"]:::ai
         end
     end
 
     %% --- LAYER 3: CPAP ---
-    subgraph CPAP ["Layer 3: CPAP Engine"]
+    subgraph CPAP ["Layer 3: CPAP Engine (Creative)"]
         direction TB
-        Node_Library["📚 Registry"]:::storage
+        Node_Library["📚 Prompt Library &<br/>Context Registry"]:::storage
         
         subgraph LAYERS ["4-Layer Compilation"]
-            L1[Domain] --> L2[Unit] --> L3[Task] --> L4[Opt]
+            direction LR
+            L1["L1: Domain"]:::creative
+            L2["L2: Unit"]:::creative
+            L3["L3: Task"]:::creative
+            L4["L4: Opt"]:::creative
         end
         
-        Node_Compiler["⚙️ Compiler"]:::creative
-        Node_Adapter["🔌 Adapters"]:::creative
+        Node_Compiler["⚙️ Prompt Compiler<br/>(Execution Node)"]:::creative
     end
 
     %% --- LAYER 4: OUTPUT ---
-    subgraph OUT ["Layer 4: Touchpoints"]
-        UI_Dash["💻 Dashboard"]:::output
-        UI_Mail["📧 Auto-Reports"]:::output
+    subgraph OUT ["Layer 4: Business Touchpoints"]
+        direction TB
+        subgraph DASHBOARD ["Interactive Dashboard"]
+            direction LR
+            UI_Heatmap["🌡️ Heatmap"]:::output
+            UI_Trend["📈 Sentiment Trendline"]:::output
+            UI_Gallery["🖼️ Evidence"]:::output
+        end
+        UI_Mail["📧 Weekly Reports"]:::output
         UI_Biz_Sol["💼 Business Solutions"]:::output
-        Node_Feedback["✍️ Feedback Loop"]:::flow
+        Node_Feedback["✍️ Feedback Form"]:::flow
     end
 
-    %% CONNECTIONS (Simplified for Clarity)
+    %% --- CONNECTIONS (Logical Flow) ---
     Input_User --> Node_Resolver
-    Node_Resolver --> Node_Forwarder
-    Node_Forwarder -- No --> Node_Fetcher_Meta & Node_Fetcher_Review
-    Input_User --> Node_Social_Plan --> Node_Social_Fetch
-
-    Node_Fetcher_Meta & Node_Fetcher_Review & Node_Social_Fetch --> Node_Ingest
-    Node_Ingest --> Node_Miner_Extract --> Node_Miner_Evidence
-    Node_Miner_Evidence --> Node_Janitor_Match <--> Node_Janitor_Dict
-    Node_Janitor_Match --> Node_Stats_Agg --> Node_Stats_Weight --> Node_Stats_Impact
-    Node_Stats_Impact --> Node_RAG --> Node_Reasoning
-
-    Node_Reasoning ==>|Insight| Node_Compiler
+    Node_Resolver --> Node_Fetcher_Meta
+    Node_Resolver --> Node_Fetcher_Review
+    Input_User --> Node_Social_Plan
+    Node_Social_Plan --> Node_Social_Fetch
+    
+    Node_Fetcher_Meta --> Node_Ingest
+    Node_Fetcher_Review --> Node_Ingest
+    Node_Social_Fetch --> Node_Ingest
+    
+    Node_Ingest --> Node_Miner_Extract
+    Node_Miner_Extract --> Node_Miner_Evidence
+    Node_Miner_Evidence --> Node_Janitor_Match
+    Node_Janitor_Match <--> Node_Janitor_Dict
+    Node_Janitor_Match --> Node_Stats_Agg
+    
+    Node_Stats_Agg --> Node_Stats_Weight
+    Node_Stats_Weight --> Node_Stats_Impact
+    Node_Stats_Impact --> Node_RAG
+    Node_RAG --> Node_Reasoning
+    
+    Node_Reasoning --> UI_Heatmap
+    Node_Reasoning --> UI_Mail
+    Node_Fetcher_Review --> UI_Gallery
+    
+    %% THE BRIDGE
+    Node_Reasoning ==>|Market Context| Node_Compiler
+    
     Node_Library --> L1
-    L4 --> Node_Compiler --> UI_Biz_Sol
-    Node_Reasoning --> UI_Dash & UI_Mail
+    L1 --> L2
+    L2 --> L3
+    L3 --> L4
+    L4 --> Node_Compiler
+    Node_Compiler --> UI_Biz_Sol
 
-    UI_Dash --> Node_Feedback -.-> Node_Janitor_Dict
+    %% FEEDBACK LOOP
+    UI_Heatmap --> Node_Feedback
+    Node_Feedback -.->|Correction| Node_Janitor_Dict
 ```
 
 ---
 
 ## ⚙️ III. THE ENGINEER VIEW (MICRO DETAILS)
-*Góc nhìn dành cho Dev Team: Logic xử lý cụ thể.*
+*Góc nhìn dành cho Dev Team: Cấu trúc Code và Luồng dữ liệu thực tế.*
 
-### 1. The Intelligence Pipeline
+### 1. Intelligence Pipeline (Code Logic)
+*Mô tả luồng xử lý trong `worker_api.py` và `miner.py`*
+
 ```mermaid
 graph TD
-    classDef raw fill:#e0e0e0,stroke:#616161,stroke-width:1px,color:#000;
-    classDef ai fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#000;
+    classDef cls fill:#fff9c4,stroke:#fbc02d,stroke-width:1px,color:#000;
+    classDef db fill:#e0e0e0,stroke:#616161,stroke-width:1px,color:#000;
     
-    Raw["📥 Raw Data"]:::raw --> Extract["🧠 Gemini Extract"]:::ai
-    Extract --> Evidence["🔗 Quote Linking"]:::raw
-    Evidence --> Fuzzy["🧹 Fuzzy Match"]:::ai
-    Fuzzy <--> Dict["📚 Dictionary"]:::raw
-    Fuzzy --> Bayes["⚖️ Bayesian Score"]:::ai
-    Bayes --> Impact["📉 Impact Score"]:::ai
+    subgraph WORKER ["Worker Process"]
+        Trigger["API Trigger"] --> Scraper["AmazonScraper<br/>(Apify)"]
+        Scraper --> JSON["Raw JSON"]
+        JSON --> Ingester["DataIngester<br/>(Pandas)"]
+    end
+    
+    subgraph DB ["DuckDB (Blue-Green)"]
+        Ingester --> Reviews["Table: reviews"]
+        Ingester --> Products["Table: products"]
+    end
+    
+    subgraph AI ["AI Processing"]
+        Reviews --> Miner["AIMiner<br/>(Gemini Flash 3.0)"]
+        Miner --> Tags["Table: review_tags<br/>(Raw Aspect)"]
+        Tags --> Janitor["TagNormalizer<br/>(Fuzzy Match)"]
+        Janitor --> Dict["Table: aspect_mapping"]
+        Janitor --> CleanTags["Standardized Tags"]
+    end
+    
+    subgraph CALC ["Calculation"]
+        CleanTags --> Engine["StatsEngine"]
+        Products --> Engine
+        Engine --> Impact["Table: product_stats<br/>(Weighted Score)"]
+    end
 ```
 
-### 2. The CPAP Compilation Flow
+### 2. CPAP Compilation Flow (Code Logic)
+*Mô tả luồng xử lý trong `src/framework/compiler.py`*
+
 ```mermaid
 graph LR
-    classDef ctx fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000;
+    classDef py fill:#e1bee7,stroke:#8e24aa,stroke-width:1px,color:#000;
+    classDef file fill:#fff3e0,stroke:#ef6c00,stroke-width:1px,color:#000;
+
+    Req["Request (Dict)"] --> Compiler["PromptCompiler"]:::py
     
-    Req["Request"] --> L1["Company Rules"]:::ctx
-    L1 --> L2["Dept Rules"]:::ctx
-    L2 --> L3["Task Template"]:::ctx
-    L3 --> L4["Keyword Optimization"]:::ctx
-    L4 --> Final["📝 Final Prompt"]
+    subgraph REGISTRY ["AssetRegistry"]
+        Rules["Domain Rules<br/>(YAML)"]:::file
+        Tmpl["Jinja2 Template<br/>(.j2)"]:::file
+    end
+    
+    Rules --> Compiler
+    Tmpl --> Compiler
+    
+    subgraph RENDER ["Jinja2 Rendering"]
+        Compiler --> Merge["Merge Context"]:::py
+        Merge --> Final["Final Prompt String"]:::file
+    end
 ```
-
----
-
-## 📝 Giải thích các khái niệm mới (Strategic Concepts)
-
-1.  **Unified Acquisition:** Không chỉ là scraper, mà là bộ định tuyến thông minh (Routing) để lấy đúng dữ liệu với chi phí thấp nhất.
-2.  **The Bridge (Detective -> CPAP):** Điểm chuyển đổi giá trị cốt lõi - biến Insight thụ động thành Hành động chủ động (Automation).
-3.  **Feedback Loop:** Cơ chế tự học giúp hệ thống ngày càng chính xác theo domain của doanh nghiệp.
