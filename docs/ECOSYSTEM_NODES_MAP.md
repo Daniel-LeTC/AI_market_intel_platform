@@ -1,11 +1,11 @@
-# AI ECOSYSTEM MAP (DETAILED DEEP DIVE)
+# AI ECOSYSTEM MAP (FULL STRATEGIC VIEW)
 
 ## 🎯 Tầm nhìn Chiến lược
-Bản đồ này mô tả chi tiết luồng dữ liệu và logic xử lý của hệ sinh thái AI, từ khâu tiếp nhận yêu cầu (ASIN/Social) đến việc phân tích sâu (Miner/Stats/Detective) và cuối cùng là tự động hóa tác vụ doanh nghiệp (CPAP).
+Bản đồ này tổng hợp toàn bộ các Node chức năng (cả hiện tại và tương lai), thể hiện luồng dữ liệu khép kín từ **Thu thập -> Phân tích -> Sáng tạo -> Phản hồi**.
 
 ---
 
-## 🗺️ The Detailed Ecosystem Map (Mermaid)
+## 🗺️ The Map (Mermaid)
 
 ```mermaid
 graph TD
@@ -15,8 +15,9 @@ graph TD
     classDef creative fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000;
     classDef storage fill:#eceff1,stroke:#455a64,stroke-width:2px,color:#000;
     classDef output fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000;
+    classDef hidden fill:#ffffff,stroke:#607d8b,stroke-width:2px,color:#607d8b,stroke-dasharray: 5 5;
 
-    %% --- LAYER 1: UNIFIED INPUT & DISCOVERY ---
+    %% --- LAYER 1: UNIFIED ACQUISITION ---
     subgraph ACQ ["Layer 1: Unified Acquisition & Routing"]
         direction TB
         Input_User[("👤 User Input (ASIN / Keywords)")]:::flow
@@ -25,13 +26,16 @@ graph TD
         subgraph ECOM_FLOW ["E-Commerce Workflow"]
             Node_Resolver["🔍 ASIN Resolver (Parent/Child Check)"]:::flow
             Node_Forwarder{"Is Child?"}:::flow
-            Node_Fetcher["📦 Metadata & Review Fetcher"]:::flow
+            Node_Competitor_Auto["🤖 Competitor Auto-Discovery (Future)"]:::hidden
+            Node_Fetcher_Meta["📦 Metadata Fetcher<br/>(Specs, Material, Images, Price)"]:::flow
+            Node_Fetcher_Review["📝 Review Fetcher<br/>(Text, Rating, Date, User Photos)"]:::flow
         end
         
         %% Social Flow
         subgraph SOCIAL_FLOW ["Social Workflow Engine"]
             Node_Social_Plan["📅 Social Planning (Budget/Filter)"]:::flow
             Node_Social_Fetch["📱 Social Fetcher (TikTok/Meta)"]:::flow
+            Node_Social_Pricing["💰 Cost Estimator"]:::hidden
         end
     end
 
@@ -40,12 +44,13 @@ graph TD
         direction TB
         
         %% Ingest
-        Node_Ingest["📥 Universal Ingest"]:::storage
+        Node_Ingest["📥 Universal Ingest (Blue-Green DB)"]:::storage
 
         %% Miner Detail
         subgraph MINER_LOGIC ["AI Miner (Extraction)"]
             Node_Miner_Extract["🧠 Aspect/Sentiment Extraction"]:::ai
             Node_Miner_Evidence["🔗 Evidence Linking (Quotes/IDs)"]:::ai
+            Node_Miner_Image["👁️ Image Analysis (Future)"]:::hidden
         end
 
         %% Janitor Detail
@@ -57,8 +62,8 @@ graph TD
         %% Stats Detail
         subgraph STATS_LOGIC ["Stats Engine (Processing)"]
             Node_Stats_Agg["∑ Aggregation"]:::ai
-            Node_Stats_Weight["⚖️ Weighted Scoring (Bayesian/Rating Dist)"]:::ai
-            Node_Stats_Impact["📉 Impact Score Calculation"]:::ai
+            Node_Stats_Weight["⚖️ Bayesian Smoothing<br/>(Chống bias)"]:::ai
+            Node_Stats_Impact["📉 Impact Score Calculation<br/>(Volume x Severity)"]:::ai
         end
 
         %% Detective Detail
@@ -81,13 +86,19 @@ graph TD
         end
         
         Node_Compiler["⚙️ Prompt Compiler"]:::creative
+        Node_Adapter["🔌 Domain Adapters"]:::creative
     end
 
-    %% --- LAYER 4: OUTPUT ---
+    %% --- LAYER 4: OUTPUT & FEEDBACK ---
     subgraph OUT ["Layer 4: Business Touchpoints"]
-        UI_Dash["💻 Market Dashboard"]:::output
+        subgraph DASHBOARD ["Interactive Dashboard"]
+            UI_Heatmap["🌡️ Aspect Heatmap"]:::output
+            UI_Trend["📈 Sentiment Trendline"]:::output
+            UI_Gallery["🖼️ Evidence Gallery"]:::output
+        end
         UI_Mail["📧 Auto-Reports"]:::output
-        UI_Biz_Sol["💼 Business Solutions (HR/Mkt/Sales)"]:::output
+        UI_Biz_Sol["💼 Business Solutions"]:::output
+        Node_Feedback["✍️ User Feedback Form"]:::flow
     end
 
     %% --- CONNECTIONS ---
@@ -95,14 +106,19 @@ graph TD
     Input_User --> Node_Resolver
     Node_Resolver --> Node_Forwarder
     Node_Forwarder -- Yes --> Node_Resolver
-    Node_Forwarder -- No --> Node_Fetcher
+    Node_Forwarder -- No --> Node_Fetcher_Meta
+    Node_Forwarder -- No --> Node_Fetcher_Review
+    Node_Resolver -.-> Node_Competitor_Auto
     Input_User --> Node_Social_Plan
     Node_Social_Plan --> Node_Social_Fetch
+    Node_Social_Plan -.-> Node_Social_Pricing
 
     %% Ingest
-    Node_Fetcher --> Node_Ingest
+    Node_Fetcher_Meta --> Node_Ingest
+    Node_Fetcher_Review --> Node_Ingest
     Node_Social_Fetch --> Node_Ingest
     Node_Ingest --> Node_Miner_Extract
+    Node_Ingest -.-> Node_Miner_Image
 
     %% AI Loop
     Node_Miner_Extract --> Node_Miner_Evidence
@@ -117,8 +133,13 @@ graph TD
 
     %% Detective Loop
     Node_RAG --> Node_Reasoning
-    Node_Reasoning --> UI_Dash
+    Node_Reasoning --> UI_Heatmap
     Node_Reasoning --> UI_Mail
+
+    %% OUTPUTS
+    Node_Stats_Impact --> UI_Heatmap
+    Node_Stats_Impact --> UI_Trend
+    Node_Fetcher_Review --> UI_Gallery
 
     %% THE BRIDGE (Detective -> CPAP)
     Node_Reasoning ==>|Strategic Insight| Node_Compiler
@@ -129,27 +150,32 @@ graph TD
     L2 --> L3
     L3 --> L4
     L4 --> Node_Compiler
+    Node_Adapter --> Node_Compiler
     Node_Compiler --> UI_Biz_Sol
+
+    %% FEEDBACK LOOP
+    UI_Heatmap --> Node_Feedback
+    Node_Feedback -.->|Correction| Node_Janitor_Dict
+    Node_Feedback -.->|Retrain| Node_Miner_Extract
 ```
 
 ---
 
-## 🧩 Deep Dive Logic (Giải thích luồng)
+## 🧩 Giải mã Bản đồ (Dành cho Stakeholder)
 
-### 1. Unified Acquisition (Không chỉ là Scraper)
-- **E-Commerce:** Không cào mù quáng. Hệ thống có **ASIN Resolver** thông minh để check quan hệ Cha/Con. Nếu User đưa ASIN Con, hệ thống tự forward về Cha để lấy trọn bộ biến thể.
-- **Social:** Có **Workflow Engine** riêng để lập kế hoạch (Planning), lọc Keyword và kiểm soát ngân sách trước khi cào (tránh tốn tiền vô ích).
+### 1. Unified Acquisition (Đầu vào)
+*   **Resolver:** Tự động định tuyến ASIN Cha/Con, đảm bảo không sót biến thể.
+*   **Fetchers:** Thu thập đầy đủ dữ liệu đa phương tiện (Ảnh, Text, Metadata).
+*   **Social:** Quy trình riêng có kiểm soát ngân sách (Budget Check) trước khi cào dữ liệu đắt đỏ.
 
-### 2. AI Intelligence (Hộp đen được mở nắp)
-- **Miner:** Không chỉ lấy text. Nó tách thành 2 bước: Trích xuất ý định (Extraction) và Link ngược lại bằng chứng (Evidence/Quote) để User kiểm chứng.
-- **Janitor:** Sử dụng **Canonical Dictionary** kết hợp Matching thông minh để dọn dẹp data rác.
-- **Stats Engine:** Logic tính toán 3 bước: Gom nhóm (Agg) -> Cân bằng trọng số (Weighted Scoring dựa trên Rating thật) -> Tính điểm tác động (Impact Score).
-- **Detective:** Agentic AI sử dụng **RAG** để đọc hiểu data đã tính toán, không "chém gió".
+### 2. AI Intelligence (Lõi xử lý)
+*   **Miner:** Tách Aspect (Khía cạnh) và Sentiment (Cảm xúc), có link ngược về bằng chứng gốc.
+*   **Stats Engine:** Không dùng trung bình cộng đơn giản. Áp dụng **Bayesian Smoothing** để dữ liệu ít review không bị nhiễu, tính ra **Impact Score** (Mức độ ảnh hưởng thật sự).
+*   **Janitor:** Bộ lọc thông minh, học từ Feedback của người dùng để ngày càng chuẩn xác.
 
-### 3. CPAP (Hơn cả Media)
-- **4-Layer Framework:** Domain -> Unit -> Task -> Optimization. Đảm bảo output nhất quán cho TOÀN BỘ doanh nghiệp (HR, Sales, Mkt...), không chỉ Media.
-- **Library & Registry:** Kho chứa tri thức và quy luật của công ty.
-- **Output:** Business Solutions (Giải pháp kinh doanh) đa dạng: JD tuyển dụng, Email sale, Kịch bản video, Listing...
+### 3. CPAP (Cầu nối sáng tạo)
+*   **4-Layer:** Đảm bảo mọi đầu ra (Content, Email, JD) đều tuân thủ Brand Voice và Quy định công ty.
+*   **The Bridge:** Insight từ Detective (Vd: "Lỗi khóa kéo") tự động kích hoạt CPAP để tạo tài liệu xử lý (Vd: "Email xin lỗi khách hàng").
 
-### 4. The Bridge (Điểm chuyển giao chiến lược)
-- **Detective ==> CPAP:** Mũi tên quan trọng nhất. Insight từ dữ liệu (ví dụ: "Khách chê giá đắt") tự động trở thành Input cho CPAP để tạo ra Content xử lý (ví dụ: "Viết email giải trình giá trị sản phẩm").
+### 4. Feedback Loop (Cơ chế tự học)
+*   Hệ thống không tĩnh. Khi User sửa sai trên Dashboard, thông tin đó quay ngược lại để cập nhật Từ điển (Dictionary) và Model, giúp AI ngày càng "khôn" hơn theo domain đặc thù của công ty.
