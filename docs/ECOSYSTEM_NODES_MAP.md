@@ -9,6 +9,13 @@ Tài liệu này cung cấp cái nhìn đa chiều về hệ sinh thái AI:
 
 ---
 
+## 🎨 HIGH-FIDELITY LOGIC MAP (DRAW.IO)
+*Bản vẽ chi tiết luồng logic và các điểm chạm hệ thống.*
+
+![Architecture Logic](./ARCHITECTURE_LOGIC.svg)
+
+---
+
 ## 🌍 I. THE EXECUTIVE VIEW (MACRO MAP)
 *Góc nhìn dành cho BOD/Stakeholders: Bức tranh tổng thể.*
 
