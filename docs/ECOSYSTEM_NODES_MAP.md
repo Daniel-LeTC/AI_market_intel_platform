@@ -1,15 +1,15 @@
-# AI ECOSYSTEM MAP (FULL STRATEGIC VIEW)
+# AI ECOSYSTEM MAP (OPTIMIZED LAYOUT)
 
 ## 🎯 Tầm nhìn Chiến lược
-Bản đồ này tổng hợp toàn bộ các Node chức năng (cả hiện tại và tương lai), thể hiện luồng dữ liệu khép kín từ **Thu thập -> Phân tích -> Sáng tạo -> Phản hồi**.
+Bản đồ này mô tả hệ sinh thái AI tích hợp, được tối ưu hóa về mặt trình bày để đảm bảo tính rõ ràng, dễ đọc và thể hiện trọn vẹn luồng dữ liệu từ lúc thu thập đến khi tạo ra giá trị kinh doanh.
 
 ---
 
 ## 🗺️ The Map (Mermaid)
 
 ```mermaid
-graph TD
-    %% --- STYLES (High Contrast) ---
+graph TB
+    %% --- STYLES ---
     classDef flow fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#000;
     classDef ai fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#000;
     classDef creative fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000;
@@ -17,165 +17,145 @@ graph TD
     classDef output fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000;
     classDef hidden fill:#ffffff,stroke:#607d8b,stroke-width:2px,color:#607d8b,stroke-dasharray: 5 5;
 
-    %% --- LAYER 1: UNIFIED ACQUISITION ---
-    subgraph ACQ ["Layer 1: Unified Acquisition & Routing"]
+    %% --- LAYER 1: ACQUISITION ---
+    subgraph ACQ ["Layer 1: Unified Acquisition"]
         direction TB
-        Input_User[("👤 User Input (ASIN / Keywords)")]:::flow
+        Input_User[("👤 User Input<br/>(ASIN / Keywords)")]:::flow
         
-        %% E-Commerce Flow
-        subgraph ECOM_FLOW ["E-Commerce Workflow"]
-            Node_Resolver["🔍 ASIN Resolver (Parent/Child Check)"]:::flow
-            Node_Forwarder{"Is Child?"}:::flow
-            Node_Competitor_Auto["🤖 Competitor Auto-Discovery (Future)"]:::hidden
-            Node_Fetcher_Meta["📦 Metadata Fetcher<br/>(Specs, Material, Images, Price)"]:::flow
-            Node_Fetcher_Review["📝 Review Fetcher<br/>(Text, Rating, Date, User Photos)"]:::flow
+        subgraph ECOM_FLOW ["🛒 E-Commerce Workflow"]
+            direction TB
+            Node_Resolver["🔍 ASIN Resolver<br/>(Parent/Child Check)"]:::flow
+            Node_Fetcher_Meta["📦 Metadata Fetcher<br/>(Specs/Price/Images)"]:::flow
+            Node_Fetcher_Review["📝 Review Fetcher<br/>(Text/Rating/Photos)"]:::flow
+            Node_Competitor_Auto["🤖 Competitor<br/>Auto-Discovery"]:::hidden
         end
         
-        %% Social Flow
-        subgraph SOCIAL_FLOW ["Social Workflow Engine"]
-            Node_Social_Plan["📅 Social Planning (Budget/Filter)"]:::flow
-            Node_Social_Fetch["📱 Social Fetcher (TikTok/Meta)"]:::flow
+        subgraph SOCIAL_FLOW ["📱 Social Workflow"]
+            direction TB
+            Node_Social_Plan["📅 Social Planning<br/>(Budget/Filter)"]:::flow
+            Node_Social_Fetch["⚡ Social Fetcher<br/>(TikTok/Meta)"]:::flow
             Node_Social_Pricing["💰 Cost Estimator"]:::hidden
         end
     end
 
-    %% --- LAYER 2: DEEP INTELLIGENCE (AI CORE) ---
+    %% --- LAYER 2: INTELLIGENCE CORE ---
     subgraph INTEL ["Layer 2: AI Intelligence Core"]
         direction TB
-        
-        %% Ingest
-        Node_Ingest["📥 Universal Ingest (Blue-Green DB)"]:::storage
+        Node_Ingest["📥 Universal Ingest<br/>(Blue-Green DB)"]:::storage
 
-        %% Miner Detail
-        subgraph MINER_LOGIC ["AI Miner (Extraction)"]
-            Node_Miner_Extract["🧠 Aspect/Sentiment Extraction"]:::ai
-            Node_Miner_Evidence["🔗 Evidence Linking (Quotes/IDs)"]:::ai
-            Node_Miner_Image["👁️ Image Analysis (Future)"]:::hidden
+        subgraph MINER_LOGIC ["⛏️ AI Miner (Extraction)"]
+            direction LR
+            Node_Miner_Extract["🧠 Aspect/Sentiment<br/>Extraction"]:::ai
+            Node_Miner_Evidence["🔗 Evidence Linking<br/>(Quotes/IDs)"]:::ai
         end
 
-        %% Janitor Detail
-        subgraph JANITOR_LOGIC ["Janitor (Standardization)"]
-            Node_Janitor_Match["🧹 Vector/Fuzzy Matching"]:::ai
-            Node_Janitor_Dict["📚 Canonical Dictionary"]:::storage
+        subgraph JANITOR_LOGIC ["🧹 Janitor (Clean)"]
+            direction LR
+            Node_Janitor_Match["🔍 Fuzzy/Vector<br/>Matching"]:::ai
+            Node_Janitor_Dict["📚 Canonical<br/>Dictionary"]:::storage
         end
 
-        %% Stats Detail
-        subgraph STATS_LOGIC ["Stats Engine (Processing)"]
+        subgraph STATS_LOGIC ["📊 Stats Engine"]
+            direction LR
             Node_Stats_Agg["∑ Aggregation"]:::ai
-            Node_Stats_Weight["⚖️ Bayesian Smoothing<br/>(Chống bias)"]:::ai
-            Node_Stats_Impact["📉 Impact Score Calculation<br/>(Volume x Severity)"]:::ai
+            Node_Stats_Weight["⚖️ Bayesian<br/>Smoothing"]:::ai
+            Node_Stats_Impact["📉 Net Impact<br/>Calculation"]:::ai
         end
 
-        %% Detective Detail
-        subgraph DETECTIVE_LOGIC ["Detective Agent (Reasoning)"]
-            Node_RAG["🔍 RAG Retrieval (Data + Context)"]:::ai
-            Node_Reasoning["🤔 Strategic Reasoning"]:::ai
+        subgraph DETECTIVE_LOGIC ["🕵️ Detective (Strategy)"]
+            direction LR
+            Node_RAG["🔎 RAG Retrieval<br/>(Data+Context)"]:::ai
+            Node_Reasoning["🤔 Strategic<br/>Reasoning"]:::ai
         end
     end
 
-    %% --- LAYER 3: CPAP (CREATIVE & BUSINESS AUTOMATION) ---
-    subgraph CPAP ["Layer 3: CPAP Engine (4-Layer Framework)"]
+    %% --- LAYER 3: CPAP ---
+    subgraph CPAP ["Layer 3: CPAP Engine (Creative)"]
         direction TB
-        Node_Library["📚 Prompt Library & Context Registry"]:::storage
+        Node_Library["📚 Prompt Library &<br/>Context Registry"]:::storage
         
         subgraph LAYERS ["4-Layer Compilation"]
-            L1["L1: Domain (Company)"]:::creative
-            L2["L2: Unit (Department)"]:::creative
-            L3["L3: Task (Specific)"]:::creative
-            L4["L4: Optimization"]:::creative
+            direction LR
+            L1["L1: Domain"]:::creative
+            L2["L2: Unit"]:::creative
+            L3["L3: Task"]:::creative
+            L4["L4: Opt"]:::creative
         end
         
-        Node_Compiler["⚙️ Prompt Compiler"]:::creative
-        Node_Adapter["🔌 Domain Adapters"]:::creative
+        Node_Compiler["⚙️ Prompt Compiler<br/>(Execution Node)"]:::creative
     end
 
-    %% --- LAYER 4: OUTPUT & FEEDBACK ---
+    %% --- LAYER 4: OUTPUT ---
     subgraph OUT ["Layer 4: Business Touchpoints"]
+        direction TB
         subgraph DASHBOARD ["Interactive Dashboard"]
-            UI_Heatmap["🌡️ Aspect Heatmap"]:::output
-            UI_Trend["📈 Sentiment Trendline"]:::output
-            UI_Gallery["🖼️ Evidence Gallery"]:::output
+            direction LR
+            UI_Heatmap["🌡️ Heatmap"]:::output
+            UI_Trend["📈 Trends"]:::output
+            UI_Gallery["🖼️ Evidence"]:::output
         end
-        UI_Mail["📧 Auto-Reports"]:::output
+        UI_Mail["📧 Weekly Reports"]:::output
         UI_Biz_Sol["💼 Business Solutions"]:::output
-        Node_Feedback["✍️ User Feedback Form"]:::flow
+        Node_Feedback["✍️ Feedback Form"]:::flow
     end
 
-    %% --- CONNECTIONS ---
-    %% Input Flow
+    %% --- CONNECTIONS (Logical Flow) ---
     Input_User --> Node_Resolver
-    Node_Resolver --> Node_Forwarder
-    Node_Forwarder -- Yes --> Node_Resolver
-    Node_Forwarder -- No --> Node_Fetcher_Meta
-    Node_Forwarder -- No --> Node_Fetcher_Review
-    Node_Resolver -.-> Node_Competitor_Auto
+    Node_Resolver --> Node_Fetcher_Meta
+    Node_Resolver --> Node_Fetcher_Review
     Input_User --> Node_Social_Plan
     Node_Social_Plan --> Node_Social_Fetch
-    Node_Social_Plan -.-> Node_Social_Pricing
-
-    %% Ingest
+    
     Node_Fetcher_Meta --> Node_Ingest
     Node_Fetcher_Review --> Node_Ingest
     Node_Social_Fetch --> Node_Ingest
+    
     Node_Ingest --> Node_Miner_Extract
-    Node_Ingest -.-> Node_Miner_Image
-
-    %% AI Loop
     Node_Miner_Extract --> Node_Miner_Evidence
     Node_Miner_Evidence --> Node_Janitor_Match
     Node_Janitor_Match <--> Node_Janitor_Dict
     Node_Janitor_Match --> Node_Stats_Agg
     
-    %% Stats Loop
     Node_Stats_Agg --> Node_Stats_Weight
     Node_Stats_Weight --> Node_Stats_Impact
     Node_Stats_Impact --> Node_RAG
-
-    %% Detective Loop
     Node_RAG --> Node_Reasoning
+    
     Node_Reasoning --> UI_Heatmap
     Node_Reasoning --> UI_Mail
-
-    %% OUTPUTS
-    Node_Stats_Impact --> UI_Heatmap
-    Node_Stats_Impact --> UI_Trend
     Node_Fetcher_Review --> UI_Gallery
-
-    %% THE BRIDGE (Detective -> CPAP)
-    Node_Reasoning ==>|Strategic Insight| Node_Compiler
-
-    %% CPAP Flow
+    
+    %% THE BRIDGE
+    Node_Reasoning ==>|Market Context| Node_Compiler
+    
     Node_Library --> L1
     L1 --> L2
     L2 --> L3
     L3 --> L4
     L4 --> Node_Compiler
-    Node_Adapter --> Node_Compiler
     Node_Compiler --> UI_Biz_Sol
 
     %% FEEDBACK LOOP
     UI_Heatmap --> Node_Feedback
     Node_Feedback -.->|Correction| Node_Janitor_Dict
-    Node_Feedback -.->|Retrain| Node_Miner_Extract
 ```
 
 ---
 
 ## 🧩 Giải mã Bản đồ (Dành cho Stakeholder)
 
-### 1. Unified Acquisition (Đầu vào)
-*   **Resolver:** Tự động định tuyến ASIN Cha/Con, đảm bảo không sót biến thể.
-*   **Fetchers:** Thu thập đầy đủ dữ liệu đa phương tiện (Ảnh, Text, Metadata).
-*   **Social:** Quy trình riêng có kiểm soát ngân sách (Budget Check) trước khi cào dữ liệu đắt đỏ.
+### 1. Unified Acquisition (Lớp Thu thập)
+*   **🛒 E-Commerce:** Tự động định tuyến và thu thập đa dạng dữ liệu (Thông số kỹ thuật, giá, ảnh user).
+*   **📱 Social:** Luồng xử lý riêng biệt cho TikTok/Meta với cơ chế kiểm soát ngân sách.
 
-### 2. AI Intelligence (Lõi xử lý)
-*   **Miner:** Tách Aspect (Khía cạnh) và Sentiment (Cảm xúc), có link ngược về bằng chứng gốc.
-*   **Stats Engine:** Không dùng trung bình cộng đơn giản. Áp dụng **Bayesian Smoothing** để dữ liệu ít review không bị nhiễu, tính ra **Impact Score** (Mức độ ảnh hưởng thật sự).
-*   **Janitor:** Bộ lọc thông minh, học từ Feedback của người dùng để ngày càng chuẩn xác.
+### 2. AI Intelligence (Lớp Phân tích)
+*   **⛏️ Miner:** Bóc tách khía cạnh và cảm xúc, luôn đi kèm bằng chứng (Quote) để đảm bảo tính minh bạch.
+*   **🧹 Janitor:** Dọn dẹp và chuẩn hóa dữ liệu dựa trên Từ điển hệ thống (Canonical Dictionary).
+*   **📊 Stats Engine:** Áp dụng toán học (Bayesian) để loại bỏ nhiễu và tính toán mức độ tác động thực tế (Net Impact).
 
-### 3. CPAP (Cầu nối sáng tạo)
-*   **4-Layer:** Đảm bảo mọi đầu ra (Content, Email, JD) đều tuân thủ Brand Voice và Quy định công ty.
-*   **The Bridge:** Insight từ Detective (Vd: "Lỗi khóa kéo") tự động kích hoạt CPAP để tạo tài liệu xử lý (Vd: "Email xin lỗi khách hàng").
+### 3. CPAP Engine (Lớp Sáng tạo)
+*   **⚙️ Compiler:** Đóng vai trò là **Node Thực thi**, biến các Insight thị trường thành các bộ Prompt chất lượng cao phục vụ toàn bộ doanh nghiệp.
 
-### 4. Feedback Loop (Cơ chế tự học)
-*   Hệ thống không tĩnh. Khi User sửa sai trên Dashboard, thông tin đó quay ngược lại để cập nhật Từ điển (Dictionary) và Model, giúp AI ngày càng "khôn" hơn theo domain đặc thù của công ty.
+### 4. Touchpoints & Loop (Lớp Đầu ra & Phản hồi)
+*   **💻 Dashboard:** Cung cấp Heatmap, xu hướng và thư viện bằng chứng trực quan.
+*   **✍️ Feedback:** Cho phép người dùng trực tiếp sửa sai cho AI, tạo vòng lặp tự học cho hệ thống.
