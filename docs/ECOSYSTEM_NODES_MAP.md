@@ -72,53 +72,47 @@ graph TB
     classDef output fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000;
     classDef future fill:#ffffff,stroke:#607d8b,stroke-width:2px,color:#607d8b,stroke-dasharray: 5 5;
 
-    %% --- LAYER 1: ACQUISITION (VERTICAL COMPACT) ---
+    %% --- LAYER 1: ACQUISITION ---
     subgraph ACQ ["Layer 1: Unified Acquisition"]
         direction TB
-        Input_User[("👤 User Input<br/>(ASIN / Keywords)")]:::flow
-        
+        Input_User[("👤 User Input")]:::flow
         subgraph ECOM_FLOW ["🛒 E-Commerce"]
             direction TB
-            Node_Resolver["🔍 ASIN Resolver"]:::flow
-            Node_Fetcher_Meta["📦 Metadata Fetcher"]:::flow
+            Node_Resolver["🔍 Resolver"]:::flow
+            Node_Fetcher_Meta["📦 Meta Fetcher"]:::flow
             Node_Fetcher_Review["📝 Review Fetcher"]:::flow
-            Node_Competitor_Auto["🤖 Competitor<br/>Discovery"]:::future
+            Node_Competitor_Auto["🤖 Competitor Auto"]:::future
         end
-        
-        subgraph SOCIAL_FLOW ["📱 Social Workflow"]
+        subgraph SOCIAL_FLOW ["📱 Social"]
             direction TB
-            Node_Social_Plan["📅 Social Planning"]:::flow
-            Node_Social_Fetch["⚡ Social Fetcher"]:::flow
+            Node_Social_Plan["📅 Planning"]:::flow
+            Node_Social_Fetch["⚡ Fetcher"]:::flow
         end
     end
 
-    %% --- LAYER 2: INTELLIGENCE CORE ---
-    subgraph INTEL ["Layer 2: AI Intelligence Core"]
+    %% --- LAYER 2: INTELLIGENCE ---
+    subgraph INTEL ["Layer 2: Intelligence Core"]
         direction TB
-        Node_Ingest["📥 Universal Ingest<br/>(Blue-Green DB)"]:::storage
-
-        subgraph MINER_LOGIC ["⛏️ AI Miner"]
+        Node_Ingest["📥 Universal Ingest"]:::storage
+        subgraph MINER_LOGIC ["⛏️ Miner Engine"]
             direction LR
             Node_Miner_Extract["🧠 Extraction"]:::ai
             Node_Miner_Evidence["🔗 Evidence"]:::ai
         end
-
-        subgraph JANITOR_LOGIC ["🧹 Janitor"]
+        subgraph JANITOR_LOGIC ["🧹 Janitor Engine"]
             direction LR
             Node_Janitor_Match["🔍 Matching"]:::ai
             Node_Janitor_Dict["📚 Dictionary"]:::storage
         end
-
         subgraph STATS_LOGIC ["📊 Stats Engine"]
             direction LR
             Node_Stats_Agg["∑ Agg"]:::ai
             Node_Stats_Weight["⚖️ Bayes"]:::ai
             Node_Stats_Impact["📉 Impact"]:::ai
         end
-
-        subgraph DETECTIVE_LOGIC ["🕵️ Detective"]
+        subgraph DETECTIVE_LOGIC ["🕵️ Detective Agent"]
             direction LR
-            Node_RAG["🔎 RAG"]:::ai
+            Node_RAG["🔍 RAG"]:::ai
             Node_Reasoning["🤔 Reasoning"]:::ai
         end
     end
@@ -126,15 +120,18 @@ graph TB
     %% --- LAYER 3: CPAP ---
     subgraph CPAP ["Layer 3: CPAP Engine"]
         direction TB
-        Node_Library["📚 Registry"]:::storage
-        subgraph LAYERS ["Compilation"]
-            direction LR
-            L1["L1"]:::creative --> L2["L2"]:::creative --> L3["L3"]:::creative --> L4["L4"]:::creative
+        Node_Library["📚 Context Registry"]:::storage
+        subgraph LAYERS ["4-Layer Compilation"]
+            direction TB
+            L1["L1: Domain (Brand)"]:::creative
+            L2["L2: Unit (Dept)"]:::creative
+            L3["L3: Task (Specific)"]:::creative
+            L4["L4: Opt (Keywords)"]:::creative
         end
-        Node_Compiler["⚙️ Compiler"]:::creative
+        Node_Compiler["⚙️ Prompt Compiler"]:::creative
     end
 
-    %% --- LAYER 4: OUTPUT (PORTRAIT STACK) ---
+    %% --- LAYER 4: OUTPUT ---
     subgraph OUT ["Layer 4: Business Touchpoints"]
         direction TB
         subgraph DASHBOARD ["💻 Dashboard"]
@@ -153,19 +150,16 @@ graph TB
     Node_Resolver --> Node_Fetcher_Meta
     Node_Fetcher_Meta --> Node_Fetcher_Review
     Node_Fetcher_Review --> Node_Competitor_Auto
-    
     Input_User --> Node_Social_Plan
     Node_Social_Plan --> Node_Social_Fetch
     
     Node_Fetcher_Review --> Node_Ingest
     Node_Social_Fetch --> Node_Ingest
-    
     Node_Ingest --> Node_Miner_Extract
     Node_Miner_Extract --> Node_Miner_Evidence
     Node_Miner_Evidence --> Node_Janitor_Match
     Node_Janitor_Match <--> Node_Janitor_Dict
     Node_Janitor_Match --> Node_Stats_Agg
-    
     Node_Stats_Agg --> Node_Stats_Weight
     Node_Stats_Weight --> Node_Stats_Impact
     Node_Stats_Impact --> Node_RAG
@@ -174,13 +168,11 @@ graph TB
     Node_Reasoning --> UI_Heatmap
     Node_Reasoning --> UI_Mail
     Node_Fetcher_Review --> UI_Gallery
-    
     Node_Reasoning ==>|Market Context| Node_Compiler
     
     Node_Library --> L1
-    L4 --> Node_Compiler
+    L1 --> L2 --> L3 --> L4 --> Node_Compiler
     Node_Compiler --> UI_Biz_Sol
-
     UI_Heatmap --> Node_Feedback
     Node_Feedback -.->|Correction| Node_Janitor_Dict
 ```
