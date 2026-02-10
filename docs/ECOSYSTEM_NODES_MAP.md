@@ -5,7 +5,7 @@ Tài liệu này cung cấp cái nhìn đa chiều về hệ sinh thái AI:
 1.  **Executive View:** Tổng quan chiến lược (Value Stream).
 2.  **Architect View:** Bản đồ chi tiết luồng dữ liệu (Detailed Logic).
 3.  **Engineer View:** Chi tiết kỹ thuật implementation (Code Level).
-4.  **Product User View:** Góc nhìn Jobs-to-be-Done cho R&D/Marketing.
+4.  **Product User View:** Góc nhìn Jobs-to-be-Done và Tương tác (Interactive Console) cho R&D/Marketing.
 
 ---
 
@@ -142,7 +142,7 @@ graph TB
         subgraph DASHBOARD ["Interactive Dashboard"]
             direction LR
             UI_Heatmap["🌡️ Heatmap"]:::output
-            UI_Trend["📈 Trends"]:::output
+            UI_Trend["📈 Sentiment Trendline"]:::output
             UI_Gallery["🖼️ Evidence"]:::output
         end
         UI_Mail["📧 Weekly Reports"]:::output
@@ -256,8 +256,8 @@ graph LR
 
 ---
 
-## 💼 IV. THE PRODUCT USER VIEW (JOBS TO BE DONE)
-*Góc nhìn dành cho R&D/Product Developer: Tập trung vào giải quyết vấn đề, ẩn đi kỹ thuật.*
+## 💼 IV. THE PRODUCT USER VIEW (INTERACTIVE R&D CONSOLE)
+*Góc nhìn dành cho R&D: Quy trình tương tác từ kiểm chứng, giả lập đến hành động.*
 
 ```mermaid
 graph TD
@@ -266,71 +266,68 @@ graph TD
     classDef engine fill:#eeeeee,stroke:#9e9e9e,stroke-width:1px,color:#616161,stroke-dasharray: 5 5;
     classDef output fill:#ffecb3,stroke:#ef6c00,stroke-width:2px,color:#000;
     classDef action fill:#e1bee7,stroke:#7b1fa2,stroke-width:2px,color:#000;
+    classDef verify fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px,color:#000;
 
-    %% --- 1. USER INTENT (JOBS) ---
-    subgraph INTENT ["1. What do you want to do today?"]
+    %% --- 1. CHOOSE MISSION ---
+    subgraph INTENT ["1. Choose Mission"]
         direction TB
         Job_Fix["🛠️ Fix Current Product<br/>(Pain Points)"]:::job
         Job_Beat["⚔️ Beat Competitors<br/>(Gap Analysis)"]:::job
-        Job_Innovate["💡 Find New Ideas<br/>(Innovation Radar)"]:::job
+        Job_Innovate["💡 Hunt for Next Gen<br/>(Unmet Needs)"]:::job
     end
 
-    %% --- 2. HIDDEN ENGINE (BLACK BOX) ---
-    subgraph ENGINE ["2. The AI Processing Core (Hidden)"]
-        direction TB
-        Process["⚙️ Data Mining & Reasoning Engine"]:::engine
+    %% --- 2. ENGINE (HIDDEN) ---
+    subgraph ENGINE ["2. AI Core (Black Box)"]
+        Process["⚙️ Contextual Analysis"]:::engine
     end
 
-    %% --- 3. ACTIONABLE OUTPUTS (R&D ARTIFACTS) ---
-    subgraph OUTPUTS ["3. R&D Artifacts (Outputs)"]
+    %% --- 3. VERIFICATION (TRUST LAYER) ---
+    subgraph VERIFY ["3. Verify Reality (Don't Trust AI Blindly)"]
         direction TB
+        Out_Issues["🔴 Prioritized Issues List"]:::output
         
-        subgraph BOARD ["Improvement Board"]
-            Out_Prioritized["🔴 Top 3 Critical Issues<br/>(Impact Score)"]:::output
-            Out_Love["🟢 Top 5 Love Points<br/>(Preserve Features)"]:::output
-        end
-        
-        subgraph GAP ["Competitor Gap Map"]
-            Out_Feature_Gap["📊 Feature Comparison Matrix"]:::output
-            Out_Price_Pos["💲 Pricing Recommendations"]:::output
-        end
-        
-        subgraph RADAR ["Innovation Radar"]
-            Out_Usage["🧘 New Usage Scenarios<br/>(Unusual Contexts)"]:::output
-            Out_Social_Trend["🎵 Cross-channel Trends<br/>(TikTok vs Amazon)"]:::output
+        subgraph EVIDENCE_LOCKER ["Evidence Locker"]
+            Ev_Quotes["💬 Customer Quotes"]:::verify
+            Ev_Photos["📸 Defect Photos"]:::verify
+            Ev_Social["🎥 TikTok Clips"]:::verify
         end
     end
 
-    %% --- 4. NEXT ACTIONS (BRIDGE) ---
-    subgraph ACTIONS ["4. Recommended Actions (CPAP)"]
+    %% --- 4. SIMULATION (DECISION LAYER) ---
+    subgraph SIM ["4. What-If Simulator"]
         direction TB
-        Act_Design["🎨 Design Specs Draft"]:::action
-        Act_Listing["📝 Listing Optimization"]:::action
-        Act_Brief["🎬 Marketing Brief"]:::action
+        Sim_Rating["📈 Rating Projection:<br/>'If fixed, Rating -> 4.5?'"]:::action
+        Sim_ROI["💰 Cost vs Impact Check"]:::action
     end
 
-    %% CONNECTIONS
-    Job_Fix --> Process
-    Job_Beat --> Process
-    Job_Innovate --> Process
+    %% --- 5. EXECUTION (CPAP WORKSPACE) ---
+    subgraph WORKSPACE ["5. Actionable Artifacts (CPAP Output)"]
+        direction TB
+        Art_PRD["📝 Product Requirement Doc<br/>(For Engineering)"]:::output
+        Art_Jira["🎫 Jira Tickets JSON<br/>(For Backlog)"]:::output
+        Art_Brief["🎬 Marketing Brief<br/>(For Media)"]:::output
+    end
 
-    Process --> Out_Prioritized
-    Process --> Out_Love
-    Process --> Out_Feature_Gap
-    Process --> Out_Price_Pos
-    Process --> Out_Usage
-    Process --> Out_Social_Trend
-
-    Out_Prioritized --> Act_Design
-    Out_Feature_Gap --> Act_Listing
-    Out_Usage --> Act_Brief
+    %% FLOW
+    Job_Fix & Job_Beat & Job_Innovate --> Process
+    Process --> Out_Issues
+    
+    %% Trust Loop
+    Out_Issues --> Ev_Quotes & Ev_Photos & Ev_Social
+    Ev_Quotes --> Sim_Rating
+    
+    %% Simulation Loop
+    Sim_Rating --> Sim_ROI
+    
+    %% Action Loop
+    Sim_ROI ==>|Approved Plan| Art_PRD
+    Art_PRD --> Art_Jira & Art_Brief
 ```
 
 ---
 
-## 📝 Giải thích cho R&D (Ngôn ngữ loài người)
+## 📝 Giải thích "Đồ chơi" cho R&D
 
-1.  **Bạn không cần biết ASIN là gì:** Bạn chỉ cần chọn mục tiêu ("Sửa lỗi", "Đánh đối thủ", hay "Tìm ý tưởng").
-2.  **Product Improvement Board:** Trả lời câu hỏi *"Top 3 thứ nếu fix xong thì rating tăng rõ rệt?"*.
-3.  **Competitor Gap Map:** Trả lời câu hỏi *"Đối thủ hơn/thua mình cái gì?"*.
-4.  **Innovation Radar:** Trả lời câu hỏi *"Khách đang dùng sản phẩm đi đâu, làm gì mà mình chưa biết?"*.
+1.  **Evidence Locker (Kho Bằng chứng):** Đây là nơi "nói có sách, mách có chứng". Không có chuyện AI phán bừa. Click vào lỗi "Battery" -> Hiện ra ngay 50 reviews và 5 ảnh pin phồng. (Dữ liệu này lấy từ `Node_Review_Deep` và `Node_Miner`).
+2.  **What-If Simulator:** Dựa trên `Stats Engine` (Weighted Impact). Cho phép R&D chọn thử: "Nếu fix xong lỗi Pin (chiếm 30% negative), rating tổng sẽ nhảy lên bao nhiêu?". Giúp trả lời câu hỏi "Có đáng làm không?".
+3.  **Artifacts (Không phải text suông):** CPAP không chỉ viết văn. Nó format output thành `User Stories` cho PRD hoặc `JSON` để import thẳng vào Jira. Đây là tính năng "tiết kiệm não" cho PM.
