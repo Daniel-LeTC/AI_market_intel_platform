@@ -256,78 +256,75 @@ graph LR
 
 ---
 
-## 💼 IV. THE PRODUCT USER VIEW (INTERACTIVE R&D CONSOLE)
-*Góc nhìn dành cho R&D: Quy trình tương tác từ kiểm chứng, giả lập đến hành động.*
+## 💼 IV. THE PRODUCT USER VIEW (INTERACTIVE CONSOLE - REALITY MAPPED)
+*Góc nhìn thực tế cho User: Map trực tiếp Jobs-to-be-Done vào các Module hệ thống.*
 
 ```mermaid
 graph TD
     %% STYLES
     classDef job fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#000;
-    classDef engine fill:#eeeeee,stroke:#9e9e9e,stroke-width:1px,color:#616161,stroke-dasharray: 5 5;
-    classDef output fill:#ffecb3,stroke:#ef6c00,stroke-width:2px,color:#000;
-    classDef action fill:#e1bee7,stroke:#7b1fa2,stroke-width:2px,color:#000;
-    classDef verify fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px,color:#000;
+    classDef sys fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#000;
+    classDef out fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000;
+    classDef action fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000;
 
-    %% --- 1. CHOOSE MISSION ---
-    subgraph INTENT ["1. Choose Mission"]
+    %% --- 1. USER JOBS (INPUT) ---
+    subgraph INTENT ["1. User Intent (Choose Job)"]
         direction TB
-        Job_Fix["🛠️ Fix Current Product<br/>(Pain Points)"]:::job
-        Job_Beat["⚔️ Beat Competitors<br/>(Gap Analysis)"]:::job
-        Job_Innovate["💡 Hunt for Next Gen<br/>(Unmet Needs)"]:::job
+        Job_Fix["🛠️ Fix Product Problems<br/>(Pain Points)"]:::job
+        Job_Beat["⚔️ Analyze Competitors<br/>(Gap Analysis)"]:::job
+        Job_Auto["⚡ Automate Content<br/>(Create Assets)"]:::job
     end
 
-    %% --- 2. ENGINE (HIDDEN) ---
-    subgraph ENGINE ["2. AI Core (Black Box)"]
-        Process["⚙️ Contextual Analysis"]:::engine
-    end
-
-    %% --- 3. VERIFICATION (TRUST LAYER) ---
-    subgraph VERIFY ["3. Verify Reality (Don't Trust AI Blindly)"]
+    %% --- 2. SYSTEM PROCESSING (TRANSPARENT BOX) ---
+    subgraph SYSTEM ["2. System Execution (White Box)"]
         direction TB
-        Out_Issues["🔴 Prioritized Issues List"]:::output
-        
-        subgraph EVIDENCE_LOCKER ["Evidence Locker"]
-            Ev_Quotes["💬 Customer Quotes"]:::verify
-            Ev_Photos["📸 Defect Photos"]:::verify
-            Ev_Social["🎥 TikTok Clips"]:::verify
-        end
+        Node_Data["📦 Data Layer:<br/>Fetch Metadata & Reviews"]:::sys
+        Node_Intel["🧠 Intelligence Layer:<br/>Miner (Extract) + Stats (Weight)"]:::sys
+        Node_Reason["🕵️ Reasoning Layer:<br/>Detective Agent (RAG)"]:::sys
     end
 
-    %% --- 4. SIMULATION (DECISION LAYER) ---
-    subgraph SIM ["4. What-If Simulator"]
+    %% --- 3. INTERACTIVE OUTPUTS (TOUCHPOINTS) ---
+    subgraph VIEW ["3. Interactive Views (Dashboard)"]
         direction TB
-        Sim_Rating["📈 Rating Projection:<br/>'If fixed, Rating -> 4.5?'"]:::action
-        Sim_ROI["💰 Cost vs Impact Check"]:::action
+        Out_Issues["🔴 Prioritized Issues<br/>(Powered by StatsEngine)"]:::out
+        Out_Evidence["🔍 Evidence Gallery<br/>(Quotes/Photos from Miner)"]:::out
+        Out_Gap["📊 Competitor Matrix<br/>(Feature Comparison)"]:::out
     end
 
-    %% --- 5. EXECUTION (CPAP WORKSPACE) ---
-    subgraph WORKSPACE ["5. Actionable Artifacts (CPAP Output)"]
+    %% --- 4. ACTIONABLE ARTIFACTS (CPAP OUTPUT) ---
+    subgraph ACTION ["4. Business Deliverables (CPAP)"]
         direction TB
-        Art_PRD["📝 Product Requirement Doc<br/>(For Engineering)"]:::output
-        Art_Jira["🎫 Jira Tickets JSON<br/>(For Backlog)"]:::output
-        Art_Brief["🎬 Marketing Brief<br/>(For Media)"]:::output
+        Act_Report["📧 R&D Report<br/>(Summary + Data)"]:::action
+        Act_Content["📝 Optimized Content<br/>(Listing/Email/JD)"]:::action
+        Act_Plan["📅 Strategic Plan<br/>(Next Steps)"]:::action
     end
 
-    %% FLOW
-    Job_Fix & Job_Beat & Job_Innovate --> Process
-    Process --> Out_Issues
+    %% FLOW MAPPING
+    Job_Fix --> Node_Data
+    Job_Beat --> Node_Data
+    Job_Auto --> Node_Reason
+
+    Node_Data --> Node_Intel
+    Node_Intel --> Node_Reason
     
-    %% Trust Loop
-    Out_Issues --> Ev_Quotes & Ev_Photos & Ev_Social
-    Ev_Quotes --> Sim_Rating
-    
-    %% Simulation Loop
-    Sim_Rating --> Sim_ROI
-    
-    %% Action Loop
-    Sim_ROI ==>|Approved Plan| Art_PRD
-    Art_PRD --> Art_Jira & Art_Brief
+    Node_Intel --> Out_Issues
+    Node_Intel --> Out_Evidence
+    Node_Reason --> Out_Gap
+
+    %% User Interactive Loop
+    Out_Issues --> Out_Evidence
+    Out_Evidence --> Act_Plan
+    Out_Gap --> Act_Content
+
+    %% Automation Link
+    Node_Reason ==>|Context| Act_Content
+    Node_Reason ==>|Summary| Act_Report
 ```
 
 ---
 
-## 📝 Giải thích "Đồ chơi" cho R&D
+## 📝 Giải thích Mapping (Code to User Value)
 
-1.  **Evidence Locker (Kho Bằng chứng):** Đây là nơi "nói có sách, mách có chứng". Không có chuyện AI phán bừa. Click vào lỗi "Battery" -> Hiện ra ngay 50 reviews và 5 ảnh pin phồng. (Dữ liệu này lấy từ `Node_Review_Deep` và `Node_Miner`).
-2.  **What-If Simulator:** Dựa trên `Stats Engine` (Weighted Impact). Cho phép R&D chọn thử: "Nếu fix xong lỗi Pin (chiếm 30% negative), rating tổng sẽ nhảy lên bao nhiêu?". Giúp trả lời câu hỏi "Có đáng làm không?".
-3.  **Artifacts (Không phải text suông):** CPAP không chỉ viết văn. Nó format output thành `User Stories` cho PRD hoặc `JSON` để import thẳng vào Jira. Đây là tính năng "tiết kiệm não" cho PM.
+1.  **Transparent Processing:** Thay vì "Blackbox", hệ thống hiển thị rõ 3 bước xử lý: Lấy dữ liệu (`Fetcher`) -> Tính toán trọng số (`StatsEngine`) -> Suy luận (`Detective`). User hiểu tại sao ra kết quả này.
+2.  **Evidence-Based:** Mọi insight (`Out_Issues`) đều link trực tiếp về bằng chứng (`Out_Evidence`). Đây là tính năng của `Node_Miner_Evidence` trong code.
+3.  **Flexible Artifacts:** CPAP không chỉ tạo Media. Nó tạo ra các "tài sản" doanh nghiệp (`Act_Content`, `Act_Report`) dựa trên nhu cầu của từng BU, đúng như định hướng "Business Solutions".
