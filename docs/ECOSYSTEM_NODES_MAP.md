@@ -5,6 +5,7 @@ Tài liệu này cung cấp cái nhìn đa chiều về hệ sinh thái AI:
 1.  **Executive View:** Tổng quan chiến lược (Value Stream).
 2.  **Architect View:** Bản đồ chi tiết luồng dữ liệu (Detailed Logic).
 3.  **Engineer View:** Chi tiết kỹ thuật implementation (Code Level).
+4.  **Product User View:** Góc nhìn Jobs-to-be-Done cho R&D/Marketing.
 
 ---
 
@@ -141,7 +142,7 @@ graph TB
         subgraph DASHBOARD ["Interactive Dashboard"]
             direction LR
             UI_Heatmap["🌡️ Heatmap"]:::output
-            UI_Trend["📈 Sentiment Trendline"]:::output
+            UI_Trend["📈 Trends"]:::output
             UI_Gallery["🖼️ Evidence"]:::output
         end
         UI_Mail["📧 Weekly Reports"]:::output
@@ -252,3 +253,84 @@ graph LR
         Merge --> Final["Final Prompt String"]:::file
     end
 ```
+
+---
+
+## 💼 IV. THE PRODUCT USER VIEW (JOBS TO BE DONE)
+*Góc nhìn dành cho R&D/Product Developer: Tập trung vào giải quyết vấn đề, ẩn đi kỹ thuật.*
+
+```mermaid
+graph TD
+    %% STYLES
+    classDef job fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#000;
+    classDef engine fill:#eeeeee,stroke:#9e9e9e,stroke-width:1px,color:#616161,stroke-dasharray: 5 5;
+    classDef output fill:#ffecb3,stroke:#ef6c00,stroke-width:2px,color:#000;
+    classDef action fill:#e1bee7,stroke:#7b1fa2,stroke-width:2px,color:#000;
+
+    %% --- 1. USER INTENT (JOBS) ---
+    subgraph INTENT ["1. What do you want to do today?"]
+        direction TB
+        Job_Fix["🛠️ Fix Current Product<br/>(Pain Points)"]:::job
+        Job_Beat["⚔️ Beat Competitors<br/>(Gap Analysis)"]:::job
+        Job_Innovate["💡 Find New Ideas<br/>(Innovation Radar)"]:::job
+    end
+
+    %% --- 2. HIDDEN ENGINE (BLACK BOX) ---
+    subgraph ENGINE ["2. The AI Processing Core (Hidden)"]
+        direction TB
+        Process["⚙️ Data Mining & Reasoning Engine"]:::engine
+    end
+
+    %% --- 3. ACTIONABLE OUTPUTS (R&D ARTIFACTS) ---
+    subgraph OUTPUTS ["3. R&D Artifacts (Outputs)"]
+        direction TB
+        
+        subgraph BOARD ["Improvement Board"]
+            Out_Prioritized["🔴 Top 3 Critical Issues<br/>(Impact Score)"]:::output
+            Out_Love["🟢 Top 5 Love Points<br/>(Preserve Features)"]:::output
+        end
+        
+        subgraph GAP ["Competitor Gap Map"]
+            Out_Feature_Gap["📊 Feature Comparison Matrix"]:::output
+            Out_Price_Pos["💲 Pricing Recommendations"]:::output
+        end
+        
+        subgraph RADAR ["Innovation Radar"]
+            Out_Usage["🧘 New Usage Scenarios<br/>(Unusual Contexts)"]:::output
+            Out_Social_Trend["🎵 Cross-channel Trends<br/>(TikTok vs Amazon)"]:::output
+        end
+    end
+
+    %% --- 4. NEXT ACTIONS (BRIDGE) ---
+    subgraph ACTIONS ["4. Recommended Actions (CPAP)"]
+        direction TB
+        Act_Design["🎨 Design Specs Draft"]:::action
+        Act_Listing["📝 Listing Optimization"]:::action
+        Act_Brief["🎬 Marketing Brief"]:::action
+    end
+
+    %% CONNECTIONS
+    Job_Fix --> Process
+    Job_Beat --> Process
+    Job_Innovate --> Process
+
+    Process --> Out_Prioritized
+    Process --> Out_Love
+    Process --> Out_Feature_Gap
+    Process --> Out_Price_Pos
+    Process --> Out_Usage
+    Process --> Out_Social_Trend
+
+    Out_Prioritized --> Act_Design
+    Out_Feature_Gap --> Act_Listing
+    Out_Usage --> Act_Brief
+```
+
+---
+
+## 📝 Giải thích cho R&D (Ngôn ngữ loài người)
+
+1.  **Bạn không cần biết ASIN là gì:** Bạn chỉ cần chọn mục tiêu ("Sửa lỗi", "Đánh đối thủ", hay "Tìm ý tưởng").
+2.  **Product Improvement Board:** Trả lời câu hỏi *"Top 3 thứ nếu fix xong thì rating tăng rõ rệt?"*.
+3.  **Competitor Gap Map:** Trả lời câu hỏi *"Đối thủ hơn/thua mình cái gì?"*.
+4.  **Innovation Radar:** Trả lời câu hỏi *"Khách đang dùng sản phẩm đi đâu, làm gì mà mình chưa biết?"*.
