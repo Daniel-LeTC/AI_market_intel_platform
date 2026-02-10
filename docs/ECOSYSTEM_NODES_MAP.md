@@ -72,24 +72,23 @@ graph TB
     classDef output fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000;
     classDef future fill:#ffffff,stroke:#607d8b,stroke-width:2px,color:#607d8b,stroke-dasharray: 5 5;
 
-    %% --- LAYER 1: ACQUISITION ---
+    %% --- LAYER 1: ACQUISITION (VERTICAL COMPACT) ---
     subgraph ACQ ["Layer 1: Unified Acquisition"]
         direction TB
         Input_User[("👤 User Input<br/>(ASIN / Keywords)")]:::flow
         
-        subgraph ECOM_FLOW ["🛒 E-Commerce Workflow"]
+        subgraph ECOM_FLOW ["🛒 E-Commerce"]
             direction TB
-            Node_Resolver["🔍 ASIN Resolver<br/>(Parent/Child Check)"]:::flow
-            Node_Fetcher_Meta["📦 Metadata Fetcher<br/>(Specs/Price/Images)"]:::flow
-            Node_Fetcher_Review["📝 Review Fetcher<br/>(Text/Rating/Photos)"]:::flow
-            Node_Competitor_Auto["🤖 Competitor<br/>Auto-Discovery"]:::future
+            Node_Resolver["🔍 ASIN Resolver"]:::flow
+            Node_Fetcher_Meta["📦 Metadata Fetcher"]:::flow
+            Node_Fetcher_Review["📝 Review Fetcher"]:::flow
+            Node_Competitor_Auto["🤖 Competitor<br/>Discovery"]:::future
         end
         
         subgraph SOCIAL_FLOW ["📱 Social Workflow"]
             direction TB
-            Node_Social_Plan["📅 Social Planning<br/>(Budget/Filter)"]:::flow
-            Node_Social_Fetch["⚡ Social Fetcher<br/>(TikTok/Meta)"]:::flow
-            Node_Social_Pricing["💰 Cost Estimator"]:::future
+            Node_Social_Plan["📅 Social Planning"]:::flow
+            Node_Social_Fetch["⚡ Social Fetcher"]:::flow
         end
     end
 
@@ -98,72 +97,66 @@ graph TB
         direction TB
         Node_Ingest["📥 Universal Ingest<br/>(Blue-Green DB)"]:::storage
 
-        subgraph MINER_LOGIC ["⛏️ AI Miner (Extraction)"]
+        subgraph MINER_LOGIC ["⛏️ AI Miner"]
             direction LR
-            Node_Miner_Extract["🧠 Aspect/Sentiment<br/>Extraction"]:::ai
-            Node_Miner_Evidence["🔗 Evidence Linking<br/>(Quotes/IDs)"]:::ai
+            Node_Miner_Extract["🧠 Extraction"]:::ai
+            Node_Miner_Evidence["🔗 Evidence"]:::ai
         end
 
-        subgraph JANITOR_LOGIC ["🧹 Janitor (Clean)"]
+        subgraph JANITOR_LOGIC ["🧹 Janitor"]
             direction LR
-            Node_Janitor_Match["🔍 Fuzzy/Vector<br/>Matching"]:::ai
-            Node_Janitor_Dict["📚 Canonical<br/>Dictionary"]:::storage
+            Node_Janitor_Match["🔍 Matching"]:::ai
+            Node_Janitor_Dict["📚 Dictionary"]:::storage
         end
 
         subgraph STATS_LOGIC ["📊 Stats Engine"]
             direction LR
-            Node_Stats_Agg["∑ Aggregation"]:::ai
-            Node_Stats_Weight["⚖️ Bayesian<br/>Smoothing"]:::ai
-            Node_Stats_Impact["📉 Net Impact<br/>Calculation"]:::ai
+            Node_Stats_Agg["∑ Agg"]:::ai
+            Node_Stats_Weight["⚖️ Bayes"]:::ai
+            Node_Stats_Impact["📉 Impact"]:::ai
         end
 
-        subgraph DETECTIVE_LOGIC ["🕵️ Detective (Strategy)"]
+        subgraph DETECTIVE_LOGIC ["🕵️ Detective"]
             direction LR
-            Node_RAG["🔎 RAG Retrieval<br/>(Data+Context)"]:::ai
-            Node_Reasoning["🤔 Strategic<br/>Reasoning"]:::ai
+            Node_RAG["🔎 RAG"]:::ai
+            Node_Reasoning["🤔 Reasoning"]:::ai
         end
     end
 
     %% --- LAYER 3: CPAP ---
-    subgraph CPAP ["Layer 3: CPAP Engine (Creative)"]
+    subgraph CPAP ["Layer 3: CPAP Engine"]
         direction TB
-        Node_Library["📚 Prompt Library &<br/>Context Registry"]:::storage
-        
-        subgraph LAYERS ["4-Layer Compilation"]
+        Node_Library["📚 Registry"]:::storage
+        subgraph LAYERS ["Compilation"]
             direction LR
-            L1["L1: Domain"]:::creative
-            L2["L2: Unit"]:::creative
-            L3["L3: Task"]:::creative
-            L4["L4: Opt"]:::creative
+            L1["L1"]:::creative --> L2["L2"]:::creative --> L3["L3"]:::creative --> L4["L4"]:::creative
         end
-        
-        Node_Compiler["⚙️ Prompt Compiler<br/>(Execution Node)"]:::creative
+        Node_Compiler["⚙️ Compiler"]:::creative
     end
 
-    %% --- LAYER 4: OUTPUT ---
+    %% --- LAYER 4: OUTPUT (PORTRAIT STACK) ---
     subgraph OUT ["Layer 4: Business Touchpoints"]
         direction TB
-        subgraph DASHBOARD ["Interactive Dashboard"]
+        subgraph DASHBOARD ["💻 Dashboard"]
             direction LR
             UI_Heatmap["🌡️ Heatmap"]:::output
-            UI_Trend["📈 Sentiment Trendline"]:::output
+            UI_Trend["📈 Trends"]:::output
             UI_Gallery["🖼️ Evidence"]:::output
         end
         UI_Mail["📧 Weekly Reports"]:::output
-        UI_Biz_Sol["💼 Business Solutions"]:::output
+        UI_Biz_Sol["💼 Biz Solutions"]:::output
         Node_Feedback["✍️ Feedback Form"]:::flow
     end
 
-    %% --- CONNECTIONS (Logical Flow) ---
+    %% --- CONNECTIONS ---
     Input_User --> Node_Resolver
     Node_Resolver --> Node_Fetcher_Meta
-    Node_Resolver --> Node_Fetcher_Review
+    Node_Fetcher_Meta --> Node_Fetcher_Review
+    Node_Fetcher_Review --> Node_Competitor_Auto
+    
     Input_User --> Node_Social_Plan
     Node_Social_Plan --> Node_Social_Fetch
     
-    Node_Resolver -.-> Node_Competitor_Auto
-    
-    Node_Fetcher_Meta --> Node_Ingest
     Node_Fetcher_Review --> Node_Ingest
     Node_Social_Fetch --> Node_Ingest
     
@@ -182,17 +175,12 @@ graph TB
     Node_Reasoning --> UI_Mail
     Node_Fetcher_Review --> UI_Gallery
     
-    %% THE BRIDGE
     Node_Reasoning ==>|Market Context| Node_Compiler
     
     Node_Library --> L1
-    L1 --> L2
-    L2 --> L3
-    L3 --> L4
     L4 --> Node_Compiler
     Node_Compiler --> UI_Biz_Sol
 
-    %% FEEDBACK LOOP
     UI_Heatmap --> Node_Feedback
     Node_Feedback -.->|Correction| Node_Janitor_Dict
 ```
