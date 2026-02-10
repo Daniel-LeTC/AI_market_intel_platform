@@ -47,8 +47,12 @@ graph LR
     ACQ --> DB
     DB --> Processor
     Processor --> Detective
-    Detective --> Dash
-    Detective ==>|Strategic Insight| Bridge
+    
+    %% Dual Output Path
+    Processor -->|Real-time Metrics| Dash
+    Detective -->|Strategic Insight| Dash
+    
+    Detective ==>|Insight Context| Bridge
     Bridge --> Compiler
     Compiler --> Sol
 ```
@@ -66,7 +70,7 @@ graph TB
     classDef creative fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000;
     classDef storage fill:#eceff1,stroke:#455a64,stroke-width:2px,color:#000;
     classDef output fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000;
-    classDef hidden fill:#ffffff,stroke:#607d8b,stroke-width:2px,color:#607d8b,stroke-dasharray: 5 5;
+    classDef future fill:#ffffff,stroke:#607d8b,stroke-width:2px,color:#607d8b,stroke-dasharray: 5 5;
 
     %% --- LAYER 1: ACQUISITION ---
     subgraph ACQ ["Layer 1: Unified Acquisition"]
@@ -78,14 +82,14 @@ graph TB
             Node_Resolver["🔍 ASIN Resolver<br/>(Parent/Child Check)"]:::flow
             Node_Fetcher_Meta["📦 Metadata Fetcher<br/>(Specs/Price/Images)"]:::flow
             Node_Fetcher_Review["📝 Review Fetcher<br/>(Text/Rating/Photos)"]:::flow
-            Node_Competitor_Auto["🤖 Competitor<br/>Auto-Discovery"]:::hidden
+            Node_Competitor_Auto["🤖 Competitor<br/>Auto-Discovery"]:::future
         end
         
         subgraph SOCIAL_FLOW ["📱 Social Workflow"]
             direction TB
             Node_Social_Plan["📅 Social Planning<br/>(Budget/Filter)"]:::flow
             Node_Social_Fetch["⚡ Social Fetcher<br/>(TikTok/Meta)"]:::flow
-            Node_Social_Pricing["💰 Cost Estimator"]:::hidden
+            Node_Social_Pricing["💰 Cost Estimator"]:::future
         end
     end
 
@@ -156,6 +160,8 @@ graph TB
     Node_Resolver --> Node_Fetcher_Review
     Input_User --> Node_Social_Plan
     Node_Social_Plan --> Node_Social_Fetch
+    
+    Node_Resolver -.-> Node_Competitor_Auto
     
     Node_Fetcher_Meta --> Node_Ingest
     Node_Fetcher_Review --> Node_Ingest
@@ -278,9 +284,9 @@ graph TD
     %% --- 2. SYSTEM PROCESSING (TRANSPARENT BOX) ---
     subgraph SYSTEM ["2. System Execution (White Box)"]
         direction TB
-        Node_Data["📦 Data Layer:<br/>Fetch Metadata & Reviews"]:::sys
-        Node_Intel["🧠 Intelligence Layer:<br/>Miner (Extract) + Stats (Weight)"]:::sys
-        Node_Reason["🕵️ Reasoning Layer:<br/>Detective Agent (RAG)"]:::sys
+        Node_Scan["📡 1. Scanning<br/>(Fetch Data)"]:::sys
+        Node_Analyze["🧠 2. Analyzing<br/>(Mining & Stats)"]:::sys
+        Node_Synth["🕵️ 3. Synthesizing<br/>(Detective Reasoning)"]:::sys
     end
 
     %% --- 3. INTERACTIVE OUTPUTS (TOUCHPOINTS) ---
@@ -292,7 +298,7 @@ graph TD
     end
 
     %% --- 4. ACTIONABLE ARTIFACTS (CPAP OUTPUT) ---
-    subgraph ACTION ["4. Business Deliverables (CPAP)"]
+    subgraph EDITOR ["4. Editor Workspace (Human-in-the-Loop)"]
         direction TB
         Act_Report["📧 R&D Report<br/>(Summary + Data)"]:::action
         Act_Content["📝 Optimized Content<br/>(Listing/Email/JD)"]:::action
@@ -300,16 +306,19 @@ graph TD
     end
 
     %% FLOW MAPPING
-    Job_Fix --> Node_Data
-    Job_Beat --> Node_Data
-    Job_Auto --> Node_Reason
-
-    Node_Data --> Node_Intel
-    Node_Intel --> Node_Reason
+    Job_Fix --> Node_Scan
+    Job_Beat --> Node_Scan
     
-    Node_Intel --> Out_Issues
-    Node_Intel --> Out_Evidence
-    Node_Reason --> Out_Gap
+    %% Logic Data
+    Node_Scan --> Node_Analyze
+    Node_Analyze --> Node_Synth
+    
+    %% Logic Auto
+    Job_Auto --> Node_Synth
+
+    Node_Analyze --> Out_Issues
+    Node_Analyze --> Out_Evidence
+    Node_Synth --> Out_Gap
 
     %% User Interactive Loop
     Out_Issues --> Out_Evidence
@@ -317,8 +326,8 @@ graph TD
     Out_Gap --> Act_Content
 
     %% Automation Link
-    Node_Reason ==>|Context| Act_Content
-    Node_Reason ==>|Summary| Act_Report
+    Node_Synth ==>|Context| Act_Content
+    Node_Synth ==>|Summary| Act_Report
 ```
 
 ---
@@ -327,4 +336,4 @@ graph TD
 
 1.  **Transparent Processing:** Thay vì "Blackbox", hệ thống hiển thị rõ 3 bước xử lý: Lấy dữ liệu (`Fetcher`) -> Tính toán trọng số (`StatsEngine`) -> Suy luận (`Detective`). User hiểu tại sao ra kết quả này.
 2.  **Evidence-Based:** Mọi insight (`Out_Issues`) đều link trực tiếp về bằng chứng (`Out_Evidence`). Đây là tính năng của `Node_Miner_Evidence` trong code.
-3.  **Flexible Artifacts:** CPAP không chỉ tạo Media. Nó tạo ra các "tài sản" doanh nghiệp (`Act_Content`, `Act_Report`) dựa trên nhu cầu của từng BU, đúng như định hướng "Business Solutions".
+3.  **Human-in-the-Loop:** Output nằm trong `Editor Workspace`. User có thể chỉnh sửa trước khi xuất bản, không phó mặc hoàn toàn cho AI.
