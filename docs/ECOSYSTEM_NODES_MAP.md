@@ -1,109 +1,155 @@
-# AI ECOSYSTEM MAP (STRATEGIC ARCHITECTURE)
+# AI ECOSYSTEM MAP (DETAILED DEEP DIVE)
 
 ## 🎯 Tầm nhìn Chiến lược
-Bản đồ này mô tả hệ sinh thái AI tích hợp: Từ **Thu thập dữ liệu thị trường** đến **Phân tích thông minh** và cuối cùng là **Tự động hóa sáng tạo (CPAP)**.
+Bản đồ này mô tả chi tiết luồng dữ liệu và logic xử lý của hệ sinh thái AI, từ khâu tiếp nhận yêu cầu (ASIN/Social) đến việc phân tích sâu (Miner/Stats/Detective) và cuối cùng là tự động hóa tác vụ doanh nghiệp (CPAP).
 
 ---
 
-## 🗺️ The Strategic Map (Mermaid)
+## 🗺️ The Detailed Ecosystem Map (Mermaid)
 
 ```mermaid
 graph TD
-    %% --- STYLES (Optimized Contrast) ---
-    classDef acquisition fill:#bbdefb,stroke:#1976d2,stroke-width:2px,color:#000;
-    classDef intelligence fill:#ffe0b2,stroke:#f57c00,stroke-width:2px,color:#000;
-    classDef creative fill:#e1bee7,stroke:#7b1fa2,stroke-width:2px,color:#000;
-    classDef output fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,color:#000;
-    classDef hidden fill:#cfd8dc,stroke:#455a64,stroke-width:2px,color:#000,stroke-dasharray: 5 5;
+    %% --- STYLES (High Contrast) ---
+    classDef flow fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#000;
+    classDef ai fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#000;
+    classDef creative fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000;
+    classDef storage fill:#eceff1,stroke:#455a64,stroke-width:2px,color:#000;
+    classDef output fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000;
 
-    %% --- LAYER 1: ACQUISITION & DISCOVERY ---
-    subgraph ACQUISITION ["Layer 1: Data Acquisition & Discovery"]
+    %% --- LAYER 1: UNIFIED INPUT & DISCOVERY ---
+    subgraph ACQ ["Layer 1: Unified Acquisition & Routing"]
         direction TB
-        Node_Parent_Hunter["🔎 Parent/Variation Hunter"]:::acquisition
-        Node_Metadata_Deep["📦 Deep Metadata Scraper"]:::acquisition
-        Node_Review_Deep["📝 Deep Review Scraper"]:::acquisition
-        Node_Social_Nodes["📱 Social Scrapers (TT/Meta)"]:::hidden
+        Input_User[("👤 User Input (ASIN / Keywords)")]:::flow
+        
+        %% E-Commerce Flow
+        subgraph ECOM_FLOW ["E-Commerce Workflow"]
+            Node_Resolver["🔍 ASIN Resolver (Parent/Child Check)"]:::flow
+            Node_Forwarder{"Is Child?"}:::flow
+            Node_Fetcher["📦 Metadata & Review Fetcher"]:::flow
+        end
+        
+        %% Social Flow
+        subgraph SOCIAL_FLOW ["Social Workflow Engine"]
+            Node_Social_Plan["📅 Social Planning (Budget/Filter)"]:::flow
+            Node_Social_Fetch["📱 Social Fetcher (TikTok/Meta)"]:::flow
+        end
     end
 
-    %% --- LAYER 2: INTELLIGENCE CORE ---
-    subgraph INTELLIGENCE ["Layer 2: AI Intelligence Core"]
+    %% --- LAYER 2: DEEP INTELLIGENCE (AI CORE) ---
+    subgraph INTEL ["Layer 2: AI Intelligence Core"]
         direction TB
-        Node_Miner["⛏️ Tag Miner (Gemini)"]:::intelligence
-        Node_Janitor["🧹 Janitor (Normalization)"]:::intelligence
-        Node_Stats["📊 Stats Engine (Sentiment)"]:::intelligence
-        Node_Detective["🕵️ Detective Agent (RAG)"]:::intelligence
+        
+        %% Ingest
+        Node_Ingest["📥 Universal Ingest"]:::storage
+
+        %% Miner Detail
+        subgraph MINER_LOGIC ["AI Miner (Extraction)"]
+            Node_Miner_Extract["🧠 Aspect/Sentiment Extraction"]:::ai
+            Node_Miner_Evidence["🔗 Evidence Linking (Quotes/IDs)"]:::ai
+        end
+
+        %% Janitor Detail
+        subgraph JANITOR_LOGIC ["Janitor (Standardization)"]
+            Node_Janitor_Match["🧹 Vector/Fuzzy Matching"]:::ai
+            Node_Janitor_Dict["📚 Canonical Dictionary"]:::storage
+        end
+
+        %% Stats Detail
+        subgraph STATS_LOGIC ["Stats Engine (Processing)"]
+            Node_Stats_Agg["∑ Aggregation"]:::ai
+            Node_Stats_Weight["⚖️ Weighted Scoring (Bayesian/Rating Dist)"]:::ai
+            Node_Stats_Impact["📉 Impact Score Calculation"]:::ai
+        end
+
+        %% Detective Detail
+        subgraph DETECTIVE_LOGIC ["Detective Agent (Reasoning)"]
+            Node_RAG["🔍 RAG Retrieval (Data + Context)"]:::ai
+            Node_Reasoning["🤔 Strategic Reasoning"]:::ai
+        end
     end
 
-    %% --- LAYER 3: CREATIVE BRIDGE (CPAP ENGINE) ---
-    subgraph CREATIVE ["Layer 3: Creative Automation (CPAP)"]
+    %% --- LAYER 3: CPAP (CREATIVE & BUSINESS AUTOMATION) ---
+    subgraph CPAP ["Layer 3: CPAP Engine (4-Layer Framework)"]
         direction TB
-        Node_Registry["📚 Asset Registry (Context)"]:::creative
-        Node_Compiler["⚙️ Prompt Compiler (Execution)"]:::creative
-        Node_Adapter["🔌 Domain Adapters"]:::creative
+        Node_Library["📚 Prompt Library & Context Registry"]:::storage
+        
+        subgraph LAYERS ["4-Layer Compilation"]
+            L1["L1: Domain (Company)"]:::creative
+            L2["L2: Unit (Department)"]:::creative
+            L3["L3: Task (Specific)"]:::creative
+            L4["L4: Optimization"]:::creative
+        end
+        
+        Node_Compiler["⚙️ Prompt Compiler"]:::creative
     end
 
-    %% --- LAYER 4: USER OUTPUT ---
-    subgraph OUTPUT ["Layer 4: User Touchpoints"]
-        direction TB
-        UI_Dashboard["💻 Market Intel Dashboard"]:::output
-        UI_Mailer["📧 Weekly Auto-Mailer"]:::output
-        UI_Creative_App["📝 AI Creative Studio"]:::output
+    %% --- LAYER 4: OUTPUT ---
+    subgraph OUT ["Layer 4: Business Touchpoints"]
+        UI_Dash["💻 Market Dashboard"]:::output
+        UI_Mail["📧 Auto-Reports"]:::output
+        UI_Biz_Sol["💼 Business Solutions (HR/Mkt/Sales)"]:::output
     end
 
-    %% --- THE STRATEGIC FLOW ---
-    %% Step 1: Discovery
-    Node_Parent_Hunter -->|ASIN Map| Node_Metadata_Deep
-    Node_Parent_Hunter -->|ASIN Map| Node_Review_Deep
+    %% --- CONNECTIONS ---
+    %% Input Flow
+    Input_User --> Node_Resolver
+    Node_Resolver --> Node_Forwarder
+    Node_Forwarder -- Yes --> Node_Resolver
+    Node_Forwarder -- No --> Node_Fetcher
+    Input_User --> Node_Social_Plan
+    Node_Social_Plan --> Node_Social_Fetch
+
+    %% Ingest
+    Node_Fetcher --> Node_Ingest
+    Node_Social_Fetch --> Node_Ingest
+    Node_Ingest --> Node_Miner_Extract
+
+    %% AI Loop
+    Node_Miner_Extract --> Node_Miner_Evidence
+    Node_Miner_Evidence --> Node_Janitor_Match
+    Node_Janitor_Match <--> Node_Janitor_Dict
+    Node_Janitor_Match --> Node_Stats_Agg
     
-    %% Step 2: Analysis Pipeline
-    Node_Metadata_Deep --> Node_Miner
-    Node_Review_Deep --> Node_Miner
-    Node_Miner --> Node_Janitor
-    Node_Janitor --> Node_Stats
-    Node_Stats --> Node_Detective
+    %% Stats Loop
+    Node_Stats_Agg --> Node_Stats_Weight
+    Node_Stats_Weight --> Node_Stats_Impact
+    Node_Stats_Impact --> Node_RAG
 
-    %% Step 3: THE BRIDGE (Insight-to-Action)
-    %% Detective nạp Insight làm Input cho Compiler để đẻ ra Prompt thực thi
-    Node_Detective ==>|Market Insights| Node_Compiler
-    Node_Registry --> Node_Compiler
-    Node_Adapter --> Node_Compiler
+    %% Detective Loop
+    Node_RAG --> Node_Reasoning
+    Node_Reasoning --> UI_Dash
+    Node_Reasoning --> UI_Mail
 
-    %% Step 4: Final Delivery
-    Node_Detective --> UI_Dashboard
-    Node_Detective --> UI_Mailer
-    Node_Compiler --> UI_Creative_App
+    %% THE BRIDGE (Detective -> CPAP)
+    Node_Reasoning ==>|Strategic Insight| Node_Compiler
+
+    %% CPAP Flow
+    Node_Library --> L1
+    L1 --> L2
+    L2 --> L3
+    L3 --> L4
+    L4 --> Node_Compiler
+    Node_Compiler --> UI_Biz_Sol
 ```
 
 ---
 
-## 🧩 Node Dictionary (Từ điển Chức năng)
+## 🧩 Deep Dive Logic (Giải thích luồng)
 
-### 1. Acquisition Nodes
-| ID | Tên Node | Trạng thái | Chức năng chính |
-| :--- | :--- | :--- | :--- |
-| **Node_Parent_Hunter** | Parent Hunter | ✅ Active | Phân tích quan hệ cha con, quy hoạch thị trường. |
-| **Node_Metadata_Deep** | Deep Metadata | ✅ Active | Lấy DNA sản phẩm (Specs, Brand, Listing). |
-| **Node_Review_Deep** | Review Scraper | ✅ Active | Thu thập voice of customer qua 5-star split. |
-| **Node_Social_Nodes** | Social Scrapers | 💤 Sleeping | Cào TikTok/Meta (Đang chờ budget & workflow). |
+### 1. Unified Acquisition (Không chỉ là Scraper)
+- **E-Commerce:** Không cào mù quáng. Hệ thống có **ASIN Resolver** thông minh để check quan hệ Cha/Con. Nếu User đưa ASIN Con, hệ thống tự forward về Cha để lấy trọn bộ biến thể.
+- **Social:** Có **Workflow Engine** riêng để lập kế hoạch (Planning), lọc Keyword và kiểm soát ngân sách trước khi cào (tránh tốn tiền vô ích).
 
-### 2. Intelligence Core
-| ID | Tên Node | Trạng thái | Chức năng chính |
-| :--- | :--- | :--- | :--- |
-| **Node_Miner** | Tag Miner | ✅ Active | Dùng Gemini trích xuất Aspect/Sentiment thô. |
-| **Node_Janitor** | Data Janitor | ✅ Active | Quy chuẩn hóa dữ liệu về ngôn ngữ chung. |
-| **Node_Stats** | Stats Engine | ✅ Active | Tính trọng số Impact dựa trên Rating dân số thực. |
-| **Node_Detective** | Detective Agent | ✅ Active | RAG Agent cung cấp insight chiến lược. |
+### 2. AI Intelligence (Hộp đen được mở nắp)
+- **Miner:** Không chỉ lấy text. Nó tách thành 2 bước: Trích xuất ý định (Extraction) và Link ngược lại bằng chứng (Evidence/Quote) để User kiểm chứng.
+- **Janitor:** Sử dụng **Canonical Dictionary** kết hợp Matching thông minh để dọn dẹp data rác.
+- **Stats Engine:** Logic tính toán 3 bước: Gom nhóm (Agg) -> Cân bằng trọng số (Weighted Scoring dựa trên Rating thật) -> Tính điểm tác động (Impact Score).
+- **Detective:** Agentic AI sử dụng **RAG** để đọc hiểu data đã tính toán, không "chém gió".
 
-### 3. Creative Bridge (CPAP)
-| ID | Tên Node | Trạng thái | Chức năng chính |
-| :--- | :--- | :--- | :--- |
-| **Node_Compiler** | Prompt Compiler | ✅ Active | **Node Chuyển Tiếp**: Biến Insight thành Prompt hành động. |
-| **Node_Registry** | Asset Registry | ✅ Active | Quản lý Context (Brand Voice, Rules) cho AI. |
-| **Node_Adapter** | Domain Adapter | ✅ Active | Tùy biến logic Prompt cho từng phòng ban (HR, Mkt). |
+### 3. CPAP (Hơn cả Media)
+- **4-Layer Framework:** Domain -> Unit -> Task -> Optimization. Đảm bảo output nhất quán cho TOÀN BỘ doanh nghiệp (HR, Sales, Mkt...), không chỉ Media.
+- **Library & Registry:** Kho chứa tri thức và quy luật của công ty.
+- **Output:** Business Solutions (Giải pháp kinh doanh) đa dạng: JD tuyển dụng, Email sale, Kịch bản video, Listing...
 
----
-
-## 🚀 Strategic Integration: Insight-to-Action
-Điểm nhấn lớn nhất của hệ thống là mũi tên **`Node_Detective ==> Node_Compiler`**. 
-- Không dừng lại ở việc báo cáo "Khách hàng chê gì".
-- Hệ thống tự động chuyển context đó sang CPAP để tạo ra các Prompt thực thi (ví dụ: Viết lại Listing sửa lỗi, Tạo kịch bản video xử lý khủng hoảng truyền thông).
+### 4. The Bridge (Điểm chuyển giao chiến lược)
+- **Detective ==> CPAP:** Mũi tên quan trọng nhất. Insight từ dữ liệu (ví dụ: "Khách chê giá đắt") tự động trở thành Input cho CPAP để tạo ra Content xử lý (ví dụ: "Viết email giải trình giá trị sản phẩm").
