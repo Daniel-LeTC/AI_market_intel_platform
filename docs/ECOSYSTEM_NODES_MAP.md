@@ -19,37 +19,37 @@ graph TD
     %% --- LAYER 1: ACQUISITION (BRIGHT SCRAPER & SOCIAL SCOUT) ---
     subgraph ACQUISITION ["Layer 1: Data Acquisition"]
         direction TB
-        Node_Amz[🛒 Amazon Scraper]:::acquisition
-        Node_TikTok_Feed[🎵 TikTok Feed Scraper]:::acquisition
-        Node_TikTok_Comment[💬 TikTok Comment Scraper]:::acquisition
-        Node_Meta_Ads[📢 Meta Ads Library]:::acquisition
-        Node_Social_Pricing[💰 Cost Estimator]:::hidden
+        Node_Amz["🛒 Amazon Scraper"]:::acquisition
+        Node_TikTok_Feed["🎵 TikTok Feed Scraper"]:::acquisition
+        Node_TikTok_Comment["💬 TikTok Comment Scraper"]:::acquisition
+        Node_Meta_Ads["📢 Meta Ads Library"]:::acquisition
+        Node_Social_Pricing["💰 Cost Estimator"]:::hidden
     end
 
     %% --- LAYER 2: INTELLIGENCE (ANALYSIS ENGINE) ---
     subgraph INTELLIGENCE ["Layer 2: AI Intelligence Core"]
         direction TB
-        Node_Ingest[📥 Data Ingest]:::intelligence
-        Node_Miner[⛏️ Tag Miner (Gemini)]:::intelligence
-        Node_Janitor[🧹 Janitor (Normalization)]:::intelligence
-        Node_Stats[📊 Stats Engine (Weighted Impact)]:::intelligence
-        Node_Detective[🕵️ Detective Agent (RAG)]:::intelligence
+        Node_Ingest["📥 Data Ingest"]:::intelligence
+        Node_Miner["⛏️ Tag Miner (Gemini)"]:::intelligence
+        Node_Janitor["🧹 Janitor (Normalization)"]:::intelligence
+        Node_Stats["📊 Stats Engine (Weighted Impact)"]:::intelligence
+        Node_Detective["🕵️ Detective Agent (RAG)"]:::intelligence
     end
 
     %% --- LAYER 3: CREATIVE (CPAP ENGINE) ---
     subgraph CREATIVE ["Layer 3: Creative Automation (CPAP)"]
         direction TB
-        Node_Registry[📚 Asset Registry (Rules/Templates)]:::creative
-        Node_Compiler[⚙️ Prompt Compiler (4-Layer)]:::creative
-        Node_Domain_Adapter[🔌 Domain Adapters (HR/Ecom)]:::creative
+        Node_Registry["📚 Asset Registry (Rules/Templates)"]:::creative
+        Node_Compiler["⚙️ Prompt Compiler (4-Layer)"]:::creative
+        Node_Domain_Adapter["🔌 Domain Adapters (HR/Ecom)"]:::creative
     end
 
     %% --- LAYER 4: OUTPUT & INTERACTION ---
     subgraph OUTPUT ["Layer 4: User Touchpoints"]
         direction TB
-        UI_Dashboard[💻 Market Intel Dashboard]:::output
-        UI_Mailer[📧 Weekly Auto-Mailer]:::output
-        UI_Prompt_Gen[📝 Prompt Generator Tool]:::output
+        UI_Dashboard["💻 Market Intel Dashboard"]:::output
+        UI_Mailer["📧 Weekly Auto-Mailer"]:::output
+        UI_Prompt_Gen["📝 Prompt Generator Tool"]:::output
     end
 
     %% --- CONNECTIONS ---
